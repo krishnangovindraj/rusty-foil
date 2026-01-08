@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap};
+use std::fmt::Formatter;
 use std::hash::{Hash, Hasher};
-use std::mem::Discriminant;
 use typedb_driver::{TypeDBDriver, Promise, Transaction};
 use typedb_driver::concept::Concept;
 use typedb_driver::concept::type_::Type;
@@ -109,5 +109,11 @@ impl From<typedb_driver::concept::Concept> for SchemaType {
             Concept::AttributeType(type_) => SchemaType(Type::AttributeType(type_)),
             _ => unreachable!("Expected type")
         }
+    }
+}
+
+impl std::fmt::Display for SchemaType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.label())
     }
 }

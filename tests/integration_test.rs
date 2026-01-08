@@ -1,6 +1,8 @@
 use std::collections::{BTreeSet, HashMap};
 use typedb_driver::{TypeDBDriver, Credentials, DriverOptions, Promise};
+use rusty_foil::clause::{Clause, ClauseLiteral};
 use rusty_foil::language::SchemaType;
+use rusty_foil::task::LearningTask;
 
 const TEST_DATABASE: &str = "rusty_foil_test";
 const TYPEDB_ADDRESS: &str = "localhost:1729";
@@ -63,36 +65,7 @@ fn cleanup_test_database(driver: &TypeDBDriver) -> Result<(), Box<dyn std::error
 }
 
 #[test]
-#[ignore] // Ignore by default since it requires a running TypeDB instance
 fn test_fetch_schema_from_typedb() -> Result<(), Box<dyn std::error::Error>> {
-    // Connect to TypeDB
-    let driver = TypeDBDriver::new(
-        TYPEDB_ADDRESS,
-        Credentials::new("admin", "password"),
-        DriverOptions::new(false, None).unwrap()
-    )?;
-
-    // Setup test database
-    setup_test_database(&driver)?;
-
-    // Fetch schema using HypothesisLanguage
-    let language = rusty_foil::language::HypothesisLanguage::fetch_from_typedb(&driver, TEST_DATABASE)?;
-
-    // Verify schema was fetched correctly
-    // TODO: Add assertions to verify the schema structure
-    // For example:
-    // assert!(language.schema.owns.contains_key("person"));
-    // assert!(language.schema.relates.contains_key("parenthood"));
-    // assert!(language.schema.plays.contains_key("person"));
-
-    // Cleanup
-    cleanup_test_database(&driver)?;
-
-    Ok(())
-}
-
-#[test]
-fn test_owns_relationships() -> Result<(), Box<dyn std::error::Error>> {
     let driver = TypeDBDriver::new(
         TYPEDB_ADDRESS,
         Credentials::new("admin", "password"),
@@ -115,6 +88,29 @@ fn test_owns_relationships() -> Result<(), Box<dyn std::error::Error>> {
     assert!(_contains(&language.schema.plays, "person", "parenthood:parent"));
     assert!(_contains(&language.schema.players, "parenthood:child", "person"));
     cleanup_test_database(&driver)?;
+
+    Ok(())
+}
+
+#[test]
+fn test_refinement() -> Result<(), Box<dyn std::error::Error>> {
+    let driver = TypeDBDriver::new(
+        TYPEDB_ADDRESS,
+        Credentials::new("admin", "password"),
+        DriverOptions::new(false, None).unwrap()
+    )?;
+
+    setup_test_database(&driver)?;
+
+    let language = rusty_foil::language::HypothesisLanguage::fetch_from_typedb(&driver, TEST_DATABASE)?;
+    let person_type = language.schema.owns.keys().find(|x| x.label() == "person").unwrap();
+
+    let start = Clause::new_from_isa(person_type.clone());
+    let refined = start.refine(&language.schema);
+    for r in &refined {
+        println!("{}", r);
+    }
+    assert_eq!(refined.len(), 6); // This changes as you change the schema. You need to do the walk
 
     Ok(())
 }
