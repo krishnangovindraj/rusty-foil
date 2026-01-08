@@ -45,11 +45,9 @@ pub enum ClauseLiteral {
         attribute: ClauseVariable,
     },
     Links {
-        player: ClauseVariable,
-        role: SchemaType,
         relation: ClauseVariable,
-        other_role: SchemaType,
-        other_player: ClauseVariable,
+        role: SchemaType,
+        player: ClauseVariable,
     },
     Isa {
         instance: ClauseVariable,
@@ -74,11 +72,9 @@ impl ClauseLiteral {
             ClauseLiteral::Links {
                 player,
                 role,
-                relation,
-                other_role,
-                other_player,
+                relation
             } => {
-                format!("{relation} links ({role}: {player}, {other_role}: {other_player})")
+                format!("{relation} links ({role}: {player})")
             }
             ClauseLiteral::Isa { instance, type_ } => format!("{instance} has {type_}"),
             ClauseLiteral::CompareVariables {
@@ -103,13 +99,15 @@ pub struct Clause {
     // value_types: HashMap<ClauseVariable, BTreeSet<typedb_driver::concept::ValueType>>,
 }
 
+// TODO: Lookahead
+// TODO: Unify existing variables rather than always introducing a new one
 impl Clause {
-    pub fn new_from_isa(type_: SchemaType) -> Self {
+    pub fn new_from_isa(type_: SchemaType, schema: &Schema) -> Self {
         let clause = Self {
             conjunction: Vec::new(),
             types_: HashMap::new(),
         }; // value_types: HashMap::new() }
-        clause.extend_with_isa(&clause.fresh_variable(&type_, None), &type_)
+        clause.extend_with_isa(&clause.fresh_variable(&type_, None), &type_, schema)
     }
 
     pub fn refine(&self, schema: &Schema) -> Vec<Clause> {
@@ -121,11 +119,11 @@ impl Clause {
             // 1. Add type constraints (Isa literals)
             if possible_types.len() > 1 {
                 for type_ in possible_types {
-                    refinements.push(self.extend_with_isa(var, type_));
+                    refinements.push(self.extend_with_isa(var, type_, schema));
                 }
             }
 
-            // 2. Add attribute ownership (Has literals) // TODO: Reenable
+            // Attribute ownerships
             #[cfg(FALSE)]
             for type_ in possible_types {
                 for attr_type in schema.owns.get(&type_).unwrap_or(&BTreeSet::new()) {
@@ -133,29 +131,22 @@ impl Clause {
                 }
             }
 
-            // 3. Add relation participation (Links literals)
+            // Relations we relate
+            for type_ in possible_types {
+                for role_type in schema.relates.get(type_).unwrap_or(&BTreeSet::new()) {
+                    refinements.push(self.extend_with_related_links(&var, role_type, schema));
+                }
+            }
+
+            // Relations we play roles in
             for type_ in possible_types {
                 for role_type in schema.plays.get(type_).unwrap_or(&BTreeSet::new()) {
-                    let other_roles = schema
-                        .related_by
-                        .get(role_type)
-                        .unwrap()
-                        .iter()
-                        .flat_map(|relation| schema.relates.get(relation).unwrap().iter())
-                        .cloned()
-                        .collect::<HashSet<_>>();
-                    for other_role in other_roles {
-                        if let Some(new_clause) =
-                            self.extend_with_links(var, role_type, &other_role, schema)
-                        {
-                            refinements.push(new_clause);
-                        }
-                    }
+                    refinements.push(self.extend_with_played_links(&var, role_type, schema));
                 }
             }
         }
 
-        // 4. Add comparisons between existing variables
+        #[cfg(FALSE)]
         for i in 0..existing_vars.len() {
             for j in (i + 1)..existing_vars.len() {
                 let var1 = &existing_vars[i];
@@ -164,7 +155,7 @@ impl Clause {
                 {
                     if types1.intersection(types2).count() > 0 {
                         for comparator in ValueComparator::VALUES {
-                            refinements.push(self.extend_with_comparison(var1, comparator, var2));
+                            refinements.push(self.extend_with_comparison(var1, comparator, var2, schema));
                         }
                     }
                 }
@@ -175,7 +166,7 @@ impl Clause {
         refinements
     }
 
-    fn extend_with_isa(&self, var: &ClauseVariable, type_: &SchemaType) -> Clause {
+    fn extend_with_isa(&self, var: &ClauseVariable, type_: &SchemaType, schema: &Schema) -> Clause {
         let mut new_clause = self.clone();
         new_clause.conjunction.push(ClauseLiteral::Isa {
             instance: var.clone(),
@@ -190,7 +181,7 @@ impl Clause {
         new_clause
     }
 
-    fn extend_with_has(&self, owner: &ClauseVariable, attr_type: &SchemaType) -> Clause {
+    fn extend_with_has(&self, owner: &ClauseVariable, attr_type: &SchemaType, schema: &Schema) -> Clause {
         let mut new_clause = self.clone();
         let attr_var = self.fresh_variable(attr_type, None);
         new_clause.conjunction.push(ClauseLiteral::Has {
@@ -207,41 +198,38 @@ impl Clause {
         new_clause
     }
 
-    fn extend_with_links(
+    fn extend_with_played_links(
         &self,
         player: &ClauseVariable,
         role_type: &SchemaType,
-        other_role_type: &SchemaType,
         schema: &Schema,
-    ) -> Option<Clause> {
+    ) -> Clause {
         let mut new_clause = self.clone();
-        let rel_var = self.fresh_variable(
-            role_type,
-            Some(other_role_type.label().replace(":", "__").as_str()),
-        );
-        let other_player = self.fresh_variable(other_role_type, None);
-        if let Some(other_player_types) = schema.players.get(other_role_type) {
-            // Add relation link for current variable
-            new_clause.conjunction.push(ClauseLiteral::Links {
-                player: player.clone(),
-                role: role_type.clone(),
-                relation: rel_var.clone(),
-                other_role: other_role_type.clone(),
-                other_player: other_player.clone(),
-            });
+        let relation = self.fresh_variable(role_type, Some("rel"));
+        new_clause.conjunction.push(ClauseLiteral::Links {
+            player: player.clone(),
+            role: role_type.clone(),
+            relation: relation.clone(),
+        });
+        new_clause.types_.insert(relation, schema.related_by[role_type].clone());
+        new_clause
+    }
 
-            // Add types for new variables
-            let mut rel_types = schema.related_by.get(role_type).unwrap().clone();
-            rel_types.retain(|x| schema.related_by.get(other_role_type).unwrap().contains(x));
-            new_clause.types_.insert(rel_var, rel_types);
-
-            new_clause
-                .types_
-                .insert(other_player, other_player_types.clone());
-            Some(new_clause)
-        } else {
-            None
-        }
+    fn extend_with_related_links(
+        &self,
+        relation: &ClauseVariable,
+        role_type: &SchemaType,
+        schema: &Schema,
+    ) -> Clause {
+        let mut new_clause = self.clone();
+        let player = self.fresh_variable(role_type, None);
+        new_clause.conjunction.push(ClauseLiteral::Links {
+            relation: relation.clone(),
+            role: role_type.clone(),
+            player: player.clone(),
+        });
+        new_clause.types_.insert(player, schema.players[role_type].clone());
+        new_clause
     }
 
     fn extend_with_comparison(

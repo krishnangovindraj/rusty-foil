@@ -78,7 +78,7 @@ fn test_fetch_schema_from_typedb() -> Result<(), Box<dyn std::error::Error>> {
 
     fn _contains(set: &HashMap<SchemaType, BTreeSet<SchemaType>>, key: &str, value: &str) -> bool {
         let key_type = set.keys().find(|k| k.label() == key).unwrap();
-        set.get(key_type).unwrap().iter().find(|v| v.label() == value).is_some()
+        set[key_type].iter().find(|v| v.label() == value).is_some()
     }
 
     assert!(_contains(&language.schema.owns, "person", "name"));
@@ -105,12 +105,12 @@ fn test_refinement() -> Result<(), Box<dyn std::error::Error>> {
     let language = rusty_foil::language::HypothesisLanguage::fetch_from_typedb(&driver, TEST_DATABASE)?;
     let person_type = language.schema.owns.keys().find(|x| x.label() == "person").unwrap();
 
-    let start = Clause::new_from_isa(person_type.clone());
+    let start = Clause::new_from_isa(person_type.clone(), &language.schema);
     let refined = start.refine(&language.schema);
     for r in &refined {
         println!("{}", r);
     }
-    assert_eq!(refined.len(), 6); // This changes as you change the schema. You need to do the walk
+    assert_eq!(refined.len(), language.schema.plays[person_type].len()); // This changes as you change the schema. You need to do the walk
 
     Ok(())
 }
