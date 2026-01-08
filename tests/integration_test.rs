@@ -1,4 +1,6 @@
+use std::collections::{BTreeSet, HashMap};
 use typedb_driver::{TypeDBDriver, Credentials, DriverOptions, Promise};
+use rusty_foil::language::SchemaType;
 
 const TEST_DATABASE: &str = "rusty_foil_test";
 const TYPEDB_ADDRESS: &str = "localhost:1729";
@@ -101,12 +103,17 @@ fn test_owns_relationships() -> Result<(), Box<dyn std::error::Error>> {
 
     let language = rusty_foil::language::HypothesisLanguage::fetch_from_typedb(&driver, TEST_DATABASE)?;
 
-    assert!(language.schema.owns.get("person").unwrap().contains(&"name".to_string()));
-    assert!(language.schema.owns.get("person").unwrap().contains(&"age".to_string()));
-    assert!(language.schema.relates.get("parenthood").unwrap().contains(&"parenthood:parent".to_string()));
-    assert!(language.schema.related_by.get("parenthood:child").unwrap().contains(&"parenthood".to_string()));
-    assert!(language.schema.plays.get("person").unwrap().contains(&"parenthood:parent".to_string()));
-    assert!(language.schema.players.get("parenthood:child").unwrap().contains(&"person".to_string()));
+    fn _contains(set: &HashMap<SchemaType, BTreeSet<SchemaType>>, key: &str, value: &str) -> bool {
+        let key_type = set.keys().find(|k| k.label() == key).unwrap();
+        set.get(key_type).unwrap().iter().find(|v| v.label() == value).is_some()
+    }
+
+    assert!(_contains(&language.schema.owns, "person", "name"));
+    assert!(_contains(&language.schema.owns, "person", "age"));
+    assert!(_contains(&language.schema.relates, "parenthood", "parenthood:parent"));
+    assert!(_contains(&language.schema.related_by, "parenthood:child", "parenthood"));
+    assert!(_contains(&language.schema.plays, "person", "parenthood:parent"));
+    assert!(_contains(&language.schema.players, "parenthood:child", "person"));
     cleanup_test_database(&driver)?;
 
     Ok(())
