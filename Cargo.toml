@@ -1,0 +1,13 @@
+[package]
+name = "rusty-foil"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+    [dependencies.typedb-driver]
+        version = "3.7.0"
+        features = ["sync"]
+
+    [dependencies.typeql]
+        version = "3.7.0"
+        features = []
