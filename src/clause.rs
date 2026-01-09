@@ -1,14 +1,20 @@
 use crate::language::{HypothesisLanguage, Schema, SchemaType};
 use itertools::Itertools;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap};
 use std::fmt::Formatter;
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub struct ClauseVariable(pub String);
 
+impl ClauseVariable {
+    pub(crate) fn name(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
 impl std::fmt::Display for ClauseVariable {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "${}", self.0.as_str())
+        write!(f, "${}", self.name())
     }
 }
 
@@ -139,6 +145,7 @@ impl Clause {
                 for role_type in schema.relates.get(type_).unwrap_or(&BTreeSet::new()) {
                     refinements.push(self.extend_with_related_links(&var, role_type, schema));
                 }
+                // TODO: Find types relating role, and see if existing vars can be used.
             }
 
             // Relations we play roles in
@@ -146,6 +153,7 @@ impl Clause {
                 for role_type in schema.plays.get(type_).unwrap_or(&BTreeSet::new()) {
                     refinements.push(self.extend_with_played_links(&var, role_type, schema));
                 }
+                // TODO: Find types playing role, and see if existing vars can be used.
             }
         }
 

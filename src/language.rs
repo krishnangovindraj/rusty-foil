@@ -57,6 +57,10 @@ impl HypothesisLanguage {
 
         Ok(Self { schema })
     }
+
+    pub(crate) fn lookup_type(&self, label: &str) -> Option<SchemaType> {
+        self.schema.subtypes.keys().find(|t| t.label() == label).cloned()
+    }
 }
 
 #[derive(Debug, Clone)]

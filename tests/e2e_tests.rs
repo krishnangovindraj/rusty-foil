@@ -1,7 +1,7 @@
 use std::{io::Read, path::Path};
 
 use typedb_driver::{Credentials, DriverOptions, Promise, TypeDBDriver};
-use rusty_foil::foil::task::FoilLearningTask;
+use rusty_foil::tasks::foil::FoilLearningTask;
 use rusty_foil::language::HypothesisLanguage;
 
 const TYPEDB_ADDRESS: &str = "localhost:1729";

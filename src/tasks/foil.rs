@@ -72,8 +72,6 @@ impl FoilLearningTask {
     // Returns example instances which satisfy the clause
     pub(super) fn test_clause(&self, clause: &Clause) -> Result<HashSet<FoilExample>, typedb_driver::Error> {
         let query = format!("match {}; select ${};", clause.to_typeql(), Self::INSTANCE_VAR_NAME);
-        eprintln!("---TESTING---\n{}\n---\n", clause);
-
         let tx = self.driver.transaction(&self.database_name, TransactionType::Read)?;
         tx.query(query).resolve()?.into_rows().map(|row| {
             Ok(row?.get(Self::INSTANCE_VAR_NAME).unwrap().unwrap().into())
@@ -84,23 +82,23 @@ impl FoilLearningTask {
     pub fn search(&self) -> Result<Vec<Clause>, typedb_driver::Error> {
         let mut theory = Vec::new();
         let mut uncovered_positives = self.positive_examples.clone();
-        let mut uncovered_negatives = self.negative_examples.clone();
+        let mut all_negatives = self.negative_examples.clone();
 
         // Learn clauses until all positive examples are covered
         while !uncovered_positives.is_empty() {
             println!("Learning new clause. Uncovered positives: {}", uncovered_positives.len());
 
-            let Some(clause) = self.learn_clause(&uncovered_positives, &uncovered_negatives)? else { break; };
+            let Some(clause) = self.learn_clause(&uncovered_positives, &all_negatives)? else { break; };
 
             // Find which positives this clause covers
             let covered_instances = self.test_clause(&clause)?;
             println!(
                 "Learnt clause: {}; Covers pos/neg: {}/{} \n---",
                 clause, uncovered_positives.intersection(&covered_instances).count(),
-                uncovered_negatives.intersection(&covered_instances).count(),
+                all_negatives.intersection(&covered_instances).count(),
             );
             uncovered_positives.retain(|ex| !covered_instances.contains(ex));
-            uncovered_negatives.retain(|ex| !covered_instances.contains(ex));
+            // uncovered_negatives.retain(|ex| !covered_instances.contains(ex));
             theory.push(clause);
 
             // Safety check to prevent infinite loops
