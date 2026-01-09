@@ -21,6 +21,7 @@ impl LearningTask {
 
     const INSTANCE_VAR_NAME: &'static str = "instance_0";
     const CLASS_VAR_NAME: &'static str = "class_0";
+
     pub fn discover(
         driver: TypeDBDriver,
         database_name: String,
@@ -54,17 +55,127 @@ impl LearningTask {
     }
 
     // Returns example instances which satisfy the clause
-    pub(super) fn run_query(&self, driver: TypeDBDriver, clause: Clause) -> Result<Vec<Concept>, typedb_driver::Error> {
+    pub(super) fn test_clause(&self, clause: &Clause) -> Result<HashSet<FoilExample>, typedb_driver::Error> {
         let query = format!("match {}; select ${};", clause.to_typeql(), Self::INSTANCE_VAR_NAME);
 
-        let tx = driver.transaction(&self.database_name, TransactionType::Read)?;
+        let tx = self.driver.transaction(&self.database_name, TransactionType::Read)?;
         tx.query(query).resolve()?.into_rows().map(|row| {
-            Ok(row?.get(Self::INSTANCE_VAR_NAME).unwrap().unwrap().clone())
+            Ok(row?.get(Self::INSTANCE_VAR_NAME).unwrap().unwrap().into())
         }).collect()
     }
 
-    // if-else clauses, I think
-    fn search(&self) -> Result<Vec<Clause>, typedb_driver::Error> {
+    // FOIL search algorithm
+    pub fn search(&self) -> Result<Vec<Clause>, typedb_driver::Error> {
+        let mut theory = Vec::new();
+        let mut uncovered_positives = self.positive_examples.clone();
+        let mut uncovered_negatives = self.negative_examples.clone();
 
+        // Learn clauses until all positive examples are covered
+        while !uncovered_positives.is_empty() {
+            println!("Learning new clause. Uncovered positives: {}", uncovered_positives.len());
+
+            let Some(clause) = self.learn_clause(&uncovered_positives, &uncovered_negatives)? else { break; };
+
+            // Find which positives this clause covers
+            let covered_instances = self.test_clause(&clause)?;
+
+            uncovered_positives.retain(|ex| !covered_instances.contains(ex));
+            uncovered_negatives.retain(|ex| !covered_instances.contains(ex));
+            println!("Learnt clause: {} \n---", clause);
+            theory.push(clause);
+
+            // Safety check to prevent infinite loops
+            if theory.len() > 20 {
+                eprintln!("Warning: Learned 20 clauses, stopping to prevent infinite loop");
+                break;
+            }
+        }
+
+        println!("Final theory has {} clauses", theory.len());
+        Ok(theory)
+    }
+
+    // Learn a single clause that covers some positive examples without covering negatives
+    fn learn_clause(
+        &self,
+        target_positives: &HashSet<FoilExample>,
+        target_negatives: &HashSet<FoilExample>
+    ) -> Result<Option<Clause>, typedb_driver::Error> {
+        let mut clause = self.initial_clause();
+
+        let mut covered_positives = target_positives.clone();
+        let mut covered_negatives = target_negatives.clone();
+
+        while !covered_negatives.is_empty() && !covered_positives.is_empty() {
+            // Get instances covered by current clause
+            let covered_instances = self.test_clause(&clause)?;
+
+            covered_positives.retain(|x| covered_instances.contains(x));
+            covered_negatives.retain(|x| covered_instances.contains(x));
+            println!("  Current clause covers: {} pos, {} neg", covered_positives.len(), covered_negatives.len());
+
+            // Generate and evaluate refinements
+            let refinements = clause.refine(&self.language);
+
+            // Find best refinement using FOIL information gain
+            let mut best_clause = None;
+            let mut best_gain = f64::NEG_INFINITY;
+
+            for refinement in refinements {
+                let refined_covered: HashSet<Instance> = self.test_clause(&refinement)?;
+                let p_new = refined_covered.intersection(&target_positives).count() as f64;
+                let n_new = refined_covered.intersection(&target_negatives).count() as f64;
+
+                // Skip refinements that cover no positives
+                if p_new == 0.0 {
+                    continue;
+                }
+
+                // FOIL information gain
+                let gain = self.foil_gain(
+                    covered_positives.len() as f64,
+                    covered_negatives.len() as f64,
+                    p_new,
+                    n_new,
+                );
+
+                if gain > best_gain {
+                    best_gain = gain;
+                    best_clause = Some(refinement);
+                }
+            }
+
+            match best_clause {
+                Some(new_clause) => {
+                    println!("  Best refinement gain: {:.4}", best_gain);
+                    clause = new_clause;
+                }
+                None => {
+                    println!("  No improving refinement found");
+                    break;
+                }
+            }
+        }
+        if covered_positives.is_empty() {
+            println!("  Clause covers no positives, returning None");
+            Ok(None)
+        } else {
+            if covered_negatives.is_empty() {
+                println!("  Clause is pure (no negatives covered)");
+            }
+            Ok(Some(clause))
+        }
+    }
+
+    // FOIL information gain heuristic
+    fn foil_gain(&self, p_old: f64, n_old: f64, p_new: f64, n_new: f64) -> f64 {
+        if p_new == 0.0 || p_old == 0.0 {
+            return f64::NEG_INFINITY;
+        }
+
+        let old_score = (p_old / (p_old + n_old + 1e-10)).log2();
+        let new_score = (p_new / (p_new + n_new + 1e-10)).log2();
+
+        p_new * (new_score - old_score)
     }
 }
