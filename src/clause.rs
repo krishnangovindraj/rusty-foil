@@ -1,10 +1,10 @@
-use crate::language::{Schema, SchemaType};
+use crate::language::{HypothesisLanguage, Schema, SchemaType};
 use itertools::Itertools;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt::Formatter;
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]
-pub struct ClauseVariable(String);
+pub struct ClauseVariable(pub String);
 
 impl std::fmt::Display for ClauseVariable {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -102,17 +102,21 @@ pub struct Clause {
 // TODO: Lookahead
 // TODO: Unify existing variables rather than always introducing a new one
 impl Clause {
-    pub fn new_from_isa(type_: SchemaType, schema: &Schema) -> Self {
-        let clause = Self {
+    pub fn new_empty() -> Clause {
+        Self {
             conjunction: Vec::new(),
             types_: HashMap::new(),
-        }; // value_types: HashMap::new() }
+        } // value_types: HashMap::new() }
+    }
+
+    pub fn new_from_isa(type_: SchemaType, schema: &Schema) -> Self {
+        let clause = Self::new_empty();
         clause.extend_with_isa(&clause.fresh_variable(&type_, None), &type_, schema)
     }
 
-    pub fn refine(&self, schema: &Schema) -> Vec<Clause> {
+    pub fn refine(&self, language: &HypothesisLanguage) -> Vec<Clause> {
         let mut refinements = Vec::new();
-
+        let schema = &language.schema;
         // For each existing variable, generate refinements
         let existing_vars: Vec<_> = self.types_.keys().cloned().collect();
         for (var, possible_types) in self.types_.iter() {
@@ -166,7 +170,7 @@ impl Clause {
         refinements
     }
 
-    fn extend_with_isa(&self, var: &ClauseVariable, type_: &SchemaType, schema: &Schema) -> Clause {
+    pub(crate) fn extend_with_isa(&self, var: &ClauseVariable, type_: &SchemaType, schema: &Schema) -> Clause {
         let mut new_clause = self.clone();
         new_clause.conjunction.push(ClauseLiteral::Isa {
             instance: var.clone(),
@@ -181,7 +185,7 @@ impl Clause {
         new_clause
     }
 
-    fn extend_with_has(&self, owner: &ClauseVariable, attr_type: &SchemaType, schema: &Schema) -> Clause {
+    pub(crate) fn extend_with_has(&self, owner: &ClauseVariable, attr_type: &SchemaType, schema: &Schema) -> Clause {
         let mut new_clause = self.clone();
         let attr_var = self.fresh_variable(attr_type, None);
         new_clause.conjunction.push(ClauseLiteral::Has {
@@ -198,7 +202,7 @@ impl Clause {
         new_clause
     }
 
-    fn extend_with_played_links(
+    pub(crate) fn extend_with_played_links(
         &self,
         player: &ClauseVariable,
         role_type: &SchemaType,
@@ -215,7 +219,7 @@ impl Clause {
         new_clause
     }
 
-    fn extend_with_related_links(
+    pub(crate) fn extend_with_related_links(
         &self,
         relation: &ClauseVariable,
         role_type: &SchemaType,
@@ -232,7 +236,7 @@ impl Clause {
         new_clause
     }
 
-    fn extend_with_comparison(
+    pub(crate) fn extend_with_comparison(
         &self,
         var1: &ClauseVariable,
         comparator: ValueComparator,
@@ -267,7 +271,7 @@ impl Clause {
         ClauseVariable(name)
     }
 
-    fn to_typeql(&self) -> String {
+    pub fn to_typeql(&self) -> String {
         self.conjunction
             .iter()
             .map(|literal| literal.to_typeql())

@@ -1,8 +1,7 @@
 use std::collections::{BTreeSet, HashMap};
 use typedb_driver::{TypeDBDriver, Credentials, DriverOptions, Promise};
-use rusty_foil::clause::{Clause, ClauseLiteral};
+use rusty_foil::clause::{Clause, ClauseVariable};
 use rusty_foil::language::SchemaType;
-use rusty_foil::task::LearningTask;
 
 const TEST_DATABASE: &str = "rusty_foil_test";
 const TYPEDB_ADDRESS: &str = "localhost:1729";
@@ -106,7 +105,7 @@ fn test_refinement() -> Result<(), Box<dyn std::error::Error>> {
     let person_type = language.schema.owns.keys().find(|x| x.label() == "person").unwrap();
 
     let start = Clause::new_from_isa(person_type.clone(), &language.schema);
-    let refined = start.refine(&language.schema);
+    let refined = start.refine(&language);
     for r in &refined {
         println!("{}", r);
     }
