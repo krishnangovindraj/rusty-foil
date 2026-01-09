@@ -7,6 +7,7 @@ use std::fmt::Formatter;
 pub struct ClauseVariable(pub String);
 
 impl ClauseVariable {
+    pub const INSTANCE_VAR_NAME: &'static str = "instance";
     pub(crate) fn name(&self) -> &str {
         self.0.as_str()
     }

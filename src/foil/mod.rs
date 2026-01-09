@@ -4,7 +4,7 @@ use typedb_driver::{TransactionType, Promise};
 use typedb_driver::concept::Concept;
 use crate::Instance;
 use crate::clause::{Clause, ClauseVariable};
-use crate::tilde::TypeDBHelper;
+use crate::TypeDBHelper;
 
 type FoilExample = Instance;
 
@@ -20,8 +20,6 @@ pub struct FoilLearningTask {
 }
 
 impl FoilLearningTask {
-
-    const INSTANCE_VAR_NAME: &'static str = "instance_0";
     const CLASS_VAR_NAME: &'static str = "class_0";
     const MAX_THEORY_LENGTH: usize = 20 ;
     const MAX_CLAUSE_LENGTH: usize = 10 ;
@@ -34,12 +32,13 @@ impl FoilLearningTask {
     ) -> Result<Self, typedb_driver::Error> {
         let query = format!(
             "match ${} isa {}, has {} ${};",
-            Self::INSTANCE_VAR_NAME, target_type_label, class_attribute_label, Self::CLASS_VAR_NAME
+            ClauseVariable::INSTANCE_VAR_NAME, target_type_label, class_attribute_label, Self::CLASS_VAR_NAME
         );
-        let dataset = typedb.query(query.as_str())?.map(|row_result| {
+        let tx = typedb.read_tx()?;
+        let dataset =  tx.query(query.as_str()).resolve()?.into_rows().map(|row_result| {
             let row = row_result?;
             Ok::<_, typedb_driver::Error>((
-                row.get(Self::INSTANCE_VAR_NAME).unwrap().unwrap().clone(),
+                row.get(ClauseVariable::INSTANCE_VAR_NAME).unwrap().unwrap().clone(),
                 row.get(Self::CLASS_VAR_NAME).unwrap().unwrap().try_get_boolean().expect("Expected class attribute to be boolean for FOIL tasks"),
             ))
         }).collect::<Result<Vec<(Concept, bool)>, _>>()?;
@@ -60,7 +59,7 @@ impl FoilLearningTask {
 
     pub(super) fn initial_clause(&self) -> Clause {
         Clause::new_empty().extend_with_isa(
-            &ClauseVariable(Self::INSTANCE_VAR_NAME.to_owned()),
+            &ClauseVariable(ClauseVariable::INSTANCE_VAR_NAME.to_owned()),
             &self.target_type,
             &self.language.schema
         )
@@ -79,7 +78,7 @@ impl FoilLearningTask {
             let Some(clause) = self.learn_clause(&uncovered_positives, &all_negatives)? else { break; };
 
             // Find which positives this clause covers
-            let covered_instances = self.typedb.test_clause(&clause, Self::INSTANCE_VAR_NAME)?;
+            let covered_instances = self.typedb.test_clause(&clause)?;
             println!(
                 "Learnt clause: {}; Covers pos/neg: {}/{} \n---",
                 clause, uncovered_positives.intersection(&covered_instances).count(),
@@ -113,7 +112,7 @@ impl FoilLearningTask {
 
         while  clause.len() < Self::MAX_CLAUSE_LENGTH && !covered_negatives.is_empty() && !covered_positives.is_empty() {
             // Get instances covered by current clause
-            let covered_instances = self.typedb.test_clause(&clause, Self::INSTANCE_VAR_NAME)?;
+            let covered_instances = self.typedb.test_clause(&clause)?;
 
             covered_positives.retain(|x| covered_instances.contains(x));
             covered_negatives.retain(|x| covered_instances.contains(x));
@@ -127,7 +126,7 @@ impl FoilLearningTask {
             let mut best_gain = f64::NEG_INFINITY;
 
             for refinement in refinements {
-                let refined_covered: HashSet<Instance> = self.typedb.test_clause(&refinement, Self::INSTANCE_VAR_NAME)?;
+                let refined_covered: HashSet<Instance> = self.typedb.test_clause(&refinement)?;
                 let p_new = refined_covered.intersection(&target_positives).count() as f64;
                 let n_new = refined_covered.intersection(&target_negatives).count() as f64;
 

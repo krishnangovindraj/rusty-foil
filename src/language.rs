@@ -5,7 +5,7 @@ use std::hash::{Hash, Hasher};
 use typedb_driver::{TypeDBDriver, Promise, Transaction};
 use typedb_driver::concept::Concept;
 use typedb_driver::concept::type_::Type;
-use crate::tilde::TypeDBHelper;
+use crate::TypeDBHelper;
 
 #[derive(Debug, Clone)]
 pub struct HypothesisLanguage {
