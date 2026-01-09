@@ -139,7 +139,7 @@ impl LearningTask {
                     n_new,
                 );
 
-                if gain > best_gain {
+                if gain > best_gain { // TODO: Verify that bigger is better
                     best_gain = gain;
                     best_clause = Some(refinement);
                 }
@@ -172,9 +172,9 @@ impl LearningTask {
         if p_new == 0.0 || p_old == 0.0 {
             return f64::NEG_INFINITY;
         }
-
-        let old_score = (p_old / (p_old + n_old + 1e-10)).log2();
-        let new_score = (p_new / (p_new + n_new + 1e-10)).log2();
+        // TODO: Verify we're not missing a -ve and the best clause has the highest gain
+        let old_score = (p_old / (p_old + n_old)).log2();
+        let new_score = (p_new / (p_new + n_new)).log2();
 
         p_new * (new_score - old_score)
     }

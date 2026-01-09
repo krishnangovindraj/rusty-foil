@@ -1,0 +1,19 @@
+define
+attribute problem-id, value integer;
+attribute shape-id, value string;
+attribute class, value boolean;
+
+relation bongard-problem, relates shape @card(0..), owns problem-id @key, owns class @card(1);
+
+attribute config, value string;
+entity shape @abstract,
+    owns shape-id,
+    plays bongard-problem:shape,
+    plays shape-in-shape:outer,
+    plays shape-in-shape:inner;
+
+entity triangle, sub shape, owns config @values("up", "down") @card(1);
+entity square, sub shape;
+entity circle, sub shape;
+
+relation shape-in-shape, relates outer @card(1), relates inner @card(1);
