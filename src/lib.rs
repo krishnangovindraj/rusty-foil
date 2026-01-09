@@ -2,7 +2,10 @@ use typedb_driver::concept::Concept;
 
 pub mod clause;
 pub mod language;
-pub mod tasks;
+
+pub mod foil;
+pub mod tilde;
+
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct Instance(typedb_driver::IID);

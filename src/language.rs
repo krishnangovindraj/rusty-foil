@@ -5,6 +5,7 @@ use std::hash::{Hash, Hasher};
 use typedb_driver::{TypeDBDriver, Promise, Transaction};
 use typedb_driver::concept::Concept;
 use typedb_driver::concept::type_::Type;
+use crate::tilde::TypeDBHelper;
 
 #[derive(Debug, Clone)]
 pub struct HypothesisLanguage {
@@ -17,10 +18,7 @@ impl HypothesisLanguage {
     const PLAYS_QUERY: &'static str = "match $left plays $right;";
     const SUB_QUERY: &'static str = "match $left sub $right;";
 
-    pub fn fetch_from_typedb(
-        driver: &TypeDBDriver,
-        database_name: &str,
-    ) -> Result<Self, typedb_driver::Error> {
+    pub fn fetch_from_typedb(typedb: &TypeDBHelper) -> Result<Self, typedb_driver::Error> {
         fn _populate(
             tx: &Transaction, query: &str
         ) -> Result<(HashMap<SchemaType, BTreeSet<SchemaType>>, HashMap<SchemaType, BTreeSet<SchemaType>>), typedb_driver::Error> {
@@ -39,7 +37,7 @@ impl HypothesisLanguage {
         }
 
         let schema = {
-            let tx = driver.transaction(database_name, typedb_driver::TransactionType::Read).unwrap();
+            let tx = typedb.driver.transaction(&typedb.database, typedb_driver::TransactionType::Read).unwrap();
             let (owns, owners) = _populate(&tx, Self::OWNS_QUERY)?;
             let (relates, related_by) = _populate(&tx, Self::RELATES_QUERY)?;
             let (plays, players) = _populate(&tx, Self::PLAYS_QUERY)?;
