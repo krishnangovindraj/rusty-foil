@@ -15,6 +15,7 @@ impl HypothesisLanguage {
     const OWNS_QUERY: &'static str = "match $left owns $right;";
     const RELATES_QUERY: &'static str = "match $left relates $right;";
     const PLAYS_QUERY: &'static str = "match $left plays $right;";
+    const SUB_QUERY: &'static str = "match $left sub $right;";
 
     pub fn fetch_from_typedb(
         driver: &TypeDBDriver,
@@ -42,6 +43,7 @@ impl HypothesisLanguage {
             let (owns, owners) = _populate(&tx, Self::OWNS_QUERY)?;
             let (relates, related_by) = _populate(&tx, Self::RELATES_QUERY)?;
             let (plays, players) = _populate(&tx, Self::PLAYS_QUERY)?;
+            let (_, subtypes) = _populate(&tx, Self::SUB_QUERY)?;
             Schema {
                 owns,
                 owners,
@@ -49,6 +51,7 @@ impl HypothesisLanguage {
                 related_by,
                 plays,
                 players,
+                subtypes,
             }
         };
 
@@ -69,6 +72,8 @@ pub struct Schema {
     // Entity/Relation types and which roles they can play
     pub plays: HashMap<SchemaType, BTreeSet<SchemaType>>,
     pub players: HashMap<SchemaType, BTreeSet<SchemaType>>,
+
+    pub subtypes: HashMap<SchemaType, BTreeSet<SchemaType>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -3,7 +3,7 @@ use typedb_driver::{TypeDBDriver, Credentials, DriverOptions, Promise};
 use rusty_foil::clause::{Clause, ClauseVariable};
 use rusty_foil::language::SchemaType;
 
-const TEST_DATABASE: &str = "rusty_foil_test";
+const TEST_DATABASE: &str = "rusty_foil_integration_tests";
 const TYPEDB_ADDRESS: &str = "localhost:1729";
 
 // Test schema definition

@@ -69,24 +69,19 @@ impl ClauseLiteral {
     fn to_typeql(&self) -> String {
         match self {
             ClauseLiteral::Has { owner, attribute } => format!("{owner} has {attribute}"),
-            ClauseLiteral::Links {
-                player,
-                role,
-                relation
-            } => {
-                format!("{relation} links ({role}: {player})")
+            ClauseLiteral::Links { player, role, relation } => {
+                let unscoped_role = role.label().rsplit_once(":").unwrap().1;
+                format!("{relation} links ({unscoped_role}: {player})")
             }
-            ClauseLiteral::Isa { instance, type_ } => format!("{instance} has {type_}"),
-            ClauseLiteral::CompareVariables {
-                lhs,
-                comparator,
-                rhs,
-            } => format!("{lhs} {comparator} {rhs}"),
-            ClauseLiteral::CompareConstant {
-                lhs,
-                comparator,
-                rhs,
-            } => format!("{lhs} {comparator} {rhs}"),
+            ClauseLiteral::Isa { instance, type_ } => {
+                format!("{instance} isa {type_}")
+            },
+            ClauseLiteral::CompareVariables { lhs, comparator, rhs,} => {
+                format!("{lhs} {comparator} {rhs}")
+            },
+            ClauseLiteral::CompareConstant {lhs, comparator, rhs, } => {
+                format!("{lhs} {comparator} {rhs}")
+            },
         }
     }
 }
@@ -112,6 +107,10 @@ impl Clause {
     pub fn new_from_isa(type_: SchemaType, schema: &Schema) -> Self {
         let clause = Self::new_empty();
         clause.extend_with_isa(&clause.fresh_variable(&type_, None), &type_, schema)
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.conjunction.len()
     }
 
     pub fn refine(&self, language: &HypothesisLanguage) -> Vec<Clause> {

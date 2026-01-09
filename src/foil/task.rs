@@ -1,36 +1,41 @@
 use std::collections::{BTreeSet, HashSet};
-use crate::language::{HypothesisLanguage};
+use crate::language::{HypothesisLanguage, SchemaType};
 use typedb_driver::{TransactionType, TypeDBDriver, Promise};
 use typedb_driver::concept::Concept;
 use crate::Instance;
-use crate::clause::Clause;
+use crate::clause::{Clause, ClauseLiteral, ClauseVariable};
 
 type FoilExample = Instance;
 
-pub struct LearningTask {
+// Ok it's not a foil task, but I have no time.
+pub struct FoilLearningTask {
     pub driver: TypeDBDriver,
     pub database_name: String,
 
+    pub target_type: SchemaType, // Label of the type. Used for initial clause.
     pub class_attribute_label: String, // Label of the class attribute
     pub language: HypothesisLanguage,
     pub positive_examples: HashSet<FoilExample>,
     pub negative_examples: HashSet<FoilExample>,
 }
 
-impl LearningTask {
+impl FoilLearningTask {
 
     const INSTANCE_VAR_NAME: &'static str = "instance_0";
     const CLASS_VAR_NAME: &'static str = "class_0";
+    const MAX_THEORY_LENGTH: usize = 20 ;
+    const MAX_CLAUSE_LENGTH: usize = 10 ;
 
     pub fn discover(
         driver: TypeDBDriver,
         database_name: String,
         language: HypothesisLanguage,
+        target_type_label: String,
         class_attribute_label: String,
     ) -> Result<Self, typedb_driver::Error> {
         let query = format!(
-            "match ${} has {} ${};",
-            Self::INSTANCE_VAR_NAME, class_attribute_label, Self::CLASS_VAR_NAME
+            "match ${} isa {}, has {} ${};",
+            Self::INSTANCE_VAR_NAME, target_type_label, class_attribute_label, Self::CLASS_VAR_NAME
         );
 
         let tx = driver.transaction(database_name.as_str(), TransactionType::Read)?;
@@ -47,16 +52,27 @@ impl LearningTask {
         let negative_examples = dataset.iter()
             .filter_map(|(concept, is_positive)| (!is_positive).then_some(concept.into()))
             .collect();
-        Ok(Self { driver, database_name, class_attribute_label, language, positive_examples, negative_examples })
+        let target_type = language.schema.subtypes.keys().find(|t| t.label() == target_type_label)
+            .expect("Expected target_type to be in schema.subtypes").clone();
+        Ok(Self { driver, database_name, class_attribute_label, target_type, language, positive_examples, negative_examples })
+    }
+
+    pub fn deconstruct(self) -> TypeDBDriver {
+        self.driver
     }
 
     pub(super) fn initial_clause(&self) -> Clause {
-        Clause::new_empty()
+        Clause::new_empty().extend_with_isa(
+            &ClauseVariable(Self::INSTANCE_VAR_NAME.to_owned()),
+            &self.target_type,
+            &self.language.schema
+        )
     }
 
     // Returns example instances which satisfy the clause
     pub(super) fn test_clause(&self, clause: &Clause) -> Result<HashSet<FoilExample>, typedb_driver::Error> {
         let query = format!("match {}; select ${};", clause.to_typeql(), Self::INSTANCE_VAR_NAME);
+        eprintln!("---TESTING---\n{}\n---\n", clause);
 
         let tx = self.driver.transaction(&self.database_name, TransactionType::Read)?;
         tx.query(query).resolve()?.into_rows().map(|row| {
@@ -78,15 +94,18 @@ impl LearningTask {
 
             // Find which positives this clause covers
             let covered_instances = self.test_clause(&clause)?;
-
+            println!(
+                "Learnt clause: {}; Covers pos/neg: {}/{} \n---",
+                clause, uncovered_positives.intersection(&covered_instances).count(),
+                uncovered_negatives.intersection(&covered_instances).count(),
+            );
             uncovered_positives.retain(|ex| !covered_instances.contains(ex));
             uncovered_negatives.retain(|ex| !covered_instances.contains(ex));
-            println!("Learnt clause: {} \n---", clause);
             theory.push(clause);
 
             // Safety check to prevent infinite loops
-            if theory.len() > 20 {
-                eprintln!("Warning: Learned 20 clauses, stopping to prevent infinite loop");
+            if theory.len() > Self::MAX_THEORY_LENGTH {
+                eprintln!("Warning: Learned {} clauses, stopping to prevent infinite loop", Self::MAX_THEORY_LENGTH);
                 break;
             }
         }
@@ -106,7 +125,7 @@ impl LearningTask {
         let mut covered_positives = target_positives.clone();
         let mut covered_negatives = target_negatives.clone();
 
-        while !covered_negatives.is_empty() && !covered_positives.is_empty() {
+        while  clause.len() < Self::MAX_CLAUSE_LENGTH && !covered_negatives.is_empty() && !covered_positives.is_empty() {
             // Get instances covered by current clause
             let covered_instances = self.test_clause(&clause)?;
 
