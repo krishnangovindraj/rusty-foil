@@ -1,9 +1,12 @@
-use crate::language::{HypothesisLanguage};
-use crate::tilde::TildeResult;
-use crate::tilde::tree::{LeafNode, TildeTree};
-use crate::TypeDBHelper;
 use super::classification::{ClassificationTask, Dataset};
-
+use crate::{
+    TypeDBHelper,
+    language::HypothesisLanguage,
+    tilde::{
+        TildeResult,
+        tree::{LeafNode, TildeTree},
+    },
+};
 
 pub struct TildeLearningTask {
     pub typedb: TypeDBHelper,
@@ -13,11 +16,10 @@ pub struct TildeLearningTask {
 }
 
 impl TildeLearningTask {
-
     const INSTANCE_VAR_NAME: &'static str = "instance_0";
     const CLASS_VAR_NAME: &'static str = "class_0";
-    const MAX_THEORY_LENGTH: usize = 20 ;
-    const MAX_CLAUSE_LENGTH: usize = 10 ;
+    const MAX_THEORY_LENGTH: usize = 20;
+    const MAX_CLAUSE_LENGTH: usize = 10;
 
     pub fn discover(
         typedb: TypeDBHelper,
@@ -28,7 +30,6 @@ impl TildeLearningTask {
         let task = ClassificationTask::discover(&typedb, &language, target_type_label, class_attribute_label)?;
         Ok(Self { typedb, task, language })
     }
-
 
     pub fn deconstruct(self) -> TypeDBHelper {
         self.typedb

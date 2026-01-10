@@ -1,10 +1,15 @@
-use std::cmp::Ordering;
-use std::collections::{BTreeSet, HashMap};
-use std::fmt::Formatter;
-use std::hash::{Hash, Hasher};
-use typedb_driver::{TypeDBDriver, Promise, Transaction};
-use typedb_driver::concept::Concept;
-use typedb_driver::concept::type_::Type;
+use std::{
+    cmp::Ordering,
+    collections::{BTreeSet, HashMap},
+    fmt::Formatter,
+    hash::{Hash, Hasher},
+};
+
+use typedb_driver::{
+    Promise, Transaction, TypeDBDriver,
+    concept::{Concept, type_::Type},
+};
+
 use crate::TypeDBHelper;
 
 #[derive(Debug, Clone)]
@@ -20,19 +25,22 @@ impl HypothesisLanguage {
 
     pub fn fetch_from_typedb(typedb: &TypeDBHelper) -> Result<Self, typedb_driver::Error> {
         fn _populate(
-            tx: &Transaction, query: &str
-        ) -> Result<(HashMap<SchemaType, BTreeSet<SchemaType>>, HashMap<SchemaType, BTreeSet<SchemaType>>), typedb_driver::Error> {
+            tx: &Transaction,
+            query: &str,
+        ) -> Result<
+            (HashMap<SchemaType, BTreeSet<SchemaType>>, HashMap<SchemaType, BTreeSet<SchemaType>>),
+            typedb_driver::Error,
+        > {
             let mut lr = HashMap::new();
             let mut rl = HashMap::new();
-            tx.query(query).resolve()?.into_rows()
-                .try_for_each(|result| {
-                    let concept_map = result?;
-                    let left: SchemaType = concept_map.get("left").unwrap().unwrap().clone().into();
-                    let right: SchemaType = concept_map.get("right").unwrap().unwrap().clone().into();
-                    lr.entry(left.clone()).or_insert_with(BTreeSet::new).insert(right.clone());
-                    rl.entry(right.clone()).or_insert_with(BTreeSet::new).insert(left.clone());
-                    Ok::<_, typedb_driver::Error>(())
-                })?;
+            tx.query(query).resolve()?.into_rows().try_for_each(|result| {
+                let concept_map = result?;
+                let left: SchemaType = concept_map.get("left").unwrap().unwrap().clone().into();
+                let right: SchemaType = concept_map.get("right").unwrap().unwrap().clone().into();
+                lr.entry(left.clone()).or_insert_with(BTreeSet::new).insert(right.clone());
+                rl.entry(right.clone()).or_insert_with(BTreeSet::new).insert(left.clone());
+                Ok::<_, typedb_driver::Error>(())
+            })?;
             Ok((lr, rl))
         }
 
@@ -42,15 +50,7 @@ impl HypothesisLanguage {
             let (relates, related_by) = _populate(&tx, Self::RELATES_QUERY)?;
             let (plays, players) = _populate(&tx, Self::PLAYS_QUERY)?;
             let (_, subtypes) = _populate(&tx, Self::SUB_QUERY)?;
-            Schema {
-                owns,
-                owners,
-                relates,
-                related_by,
-                plays,
-                players,
-                subtypes,
-            }
+            Schema { owns, owners, relates, related_by, plays, players, subtypes }
         };
 
         Ok(Self { schema })
@@ -93,7 +93,7 @@ impl Hash for SchemaType {
     }
 }
 
-impl Eq for SchemaType { }
+impl Eq for SchemaType {}
 
 impl PartialOrd<Self> for SchemaType {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
@@ -114,7 +114,7 @@ impl From<typedb_driver::concept::Concept> for SchemaType {
             Concept::RelationType(type_) => SchemaType(Type::RelationType(type_)),
             Concept::RoleType(type_) => SchemaType(Type::RoleType(type_)),
             Concept::AttributeType(type_) => SchemaType(Type::AttributeType(type_)),
-            _ => unreachable!("Expected type")
+            _ => unreachable!("Expected type"),
         }
     }
 }

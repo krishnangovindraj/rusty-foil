@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 itertools = "0.10.5"
+
 [dependencies.typedb-driver]
         version = "3.7.0"
         features = ["sync"]
@@ -12,3 +13,8 @@ itertools = "0.10.5"
     [dependencies.typeql]
         version = "3.7.0"
         features = []
+
+    [dependencies.tracing]
+        features = ["attributes", "default", "log", "std", "tracing-attributes"]
+        version = "0.1.41"
+        default-features = false

@@ -1,6 +1,6 @@
 use typedb_driver::Promise;
-pub mod tilde;
 mod classification;
+pub mod tilde;
 mod tree;
 
 pub type TildeResult<T> = std::result::Result<T, typedb_driver::Error>;

@@ -1,7 +1,7 @@
-use typedb_driver::concept::Concept;
-use typedb_driver::{Promise, Transaction, TransactionType, TypeDBDriver};
 use std::collections::HashSet;
-use typedb_driver::answer::ConceptRow;
+
+use typedb_driver::{Promise, Transaction, TransactionType, TypeDBDriver, answer::ConceptRow, concept::Concept};
+
 use crate::clause::{Clause, ClauseVariable};
 
 pub mod clause;
@@ -10,6 +10,7 @@ pub mod language;
 pub mod foil;
 pub mod tilde;
 
+const INDENT: &'static str = "  ";
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct Instance(typedb_driver::IID);
@@ -34,9 +35,11 @@ impl TypeDBHelper {
     pub fn test_clause(&self, clause: &Clause) -> Result<HashSet<Instance>, typedb_driver::Error> {
         let query = format!("match {}; select ${};", clause.to_typeql(), ClauseVariable::INSTANCE_VAR_NAME);
         let tx = self.driver.transaction(self.database.as_str(), TransactionType::Read)?;
-        tx.query(query).resolve()?.into_rows().map(|row| {
-            Ok(row?.get(ClauseVariable::INSTANCE_VAR_NAME).unwrap().unwrap().into())
-        }).collect()
+        tx.query(query)
+            .resolve()?
+            .into_rows()
+            .map(|row| Ok(row?.get(ClauseVariable::INSTANCE_VAR_NAME).unwrap().unwrap().into()))
+            .collect()
     }
 
     pub(crate) fn read_tx(&self) -> Result<Transaction, typedb_driver::Error> {
@@ -47,5 +50,4 @@ impl TypeDBHelper {
     //     let tx = self.driver.transaction(self.database.as_str(), TransactionType::Read)?;
     //     Ok(tx.query(query))
     // }
-
 }

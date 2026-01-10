@@ -1,7 +1,10 @@
 use std::collections::{BTreeSet, HashMap};
-use typedb_driver::{TypeDBDriver, Credentials, DriverOptions, Promise};
-use rusty_foil::clause::{Clause, ClauseVariable};
-use rusty_foil::language::SchemaType;
+
+use rusty_foil::{
+    clause::{Clause, ClauseVariable},
+    language::SchemaType,
+};
+use typedb_driver::{Credentials, DriverOptions, Promise, TypeDBDriver};
 
 const TEST_DATABASE: &str = "rusty_foil_integration_tests";
 const TYPEDB_ADDRESS: &str = "localhost:1729";
@@ -68,7 +71,7 @@ fn test_fetch_schema_from_typedb() -> Result<(), Box<dyn std::error::Error>> {
     let driver = TypeDBDriver::new(
         TYPEDB_ADDRESS,
         Credentials::new("admin", "password"),
-        DriverOptions::new(false, None).unwrap()
+        DriverOptions::new(false, None).unwrap(),
     )?;
 
     setup_test_database(&driver)?;
@@ -96,7 +99,7 @@ fn test_refinement() -> Result<(), Box<dyn std::error::Error>> {
     let driver = TypeDBDriver::new(
         TYPEDB_ADDRESS,
         Credentials::new("admin", "password"),
-        DriverOptions::new(false, None).unwrap()
+        DriverOptions::new(false, None).unwrap(),
     )?;
 
     setup_test_database(&driver)?;
