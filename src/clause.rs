@@ -1,12 +1,20 @@
-use crate::language::{HypothesisLanguage, Schema, SchemaType};
+use std::{
+    collections::{BTreeSet, HashMap},
+    fmt::Formatter,
+};
+
 use itertools::Itertools;
-use std::collections::{BTreeSet, HashMap};
-use std::fmt::Formatter;
+
+use crate::{
+    INDENT,
+    language::{HypothesisLanguage, Schema, SchemaType},
+};
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub struct ClauseVariable(pub String);
 
 impl ClauseVariable {
+    pub const INSTANCE_VAR_NAME: &'static str = "instance";
     pub(crate) fn name(&self) -> &str {
         self.0.as_str()
     }
@@ -26,12 +34,8 @@ enum ValueComparator {
     Gte,
 }
 impl ValueComparator {
-    const VALUES: [ValueComparator; 4] = [
-        ValueComparator::Eq,
-        ValueComparator::Neq,
-        ValueComparator::Lte,
-        ValueComparator::Gte,
-    ];
+    const VALUES: [ValueComparator; 4] =
+        [ValueComparator::Eq, ValueComparator::Neq, ValueComparator::Lte, ValueComparator::Gte];
 }
 impl std::fmt::Display for ValueComparator {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -46,29 +50,11 @@ impl std::fmt::Display for ValueComparator {
 
 #[derive(Debug, Clone)]
 pub enum ClauseLiteral {
-    Has {
-        owner: ClauseVariable,
-        attribute: ClauseVariable,
-    },
-    Links {
-        relation: ClauseVariable,
-        role: SchemaType,
-        player: ClauseVariable,
-    },
-    Isa {
-        instance: ClauseVariable,
-        type_: SchemaType,
-    },
-    CompareVariables {
-        lhs: ClauseVariable,
-        comparator: ValueComparator,
-        rhs: ClauseVariable,
-    },
-    CompareConstant {
-        lhs: ClauseVariable,
-        comparator: ValueComparator,
-        rhs: typeql::value::ValueLiteral,
-    },
+    Has { owner: ClauseVariable, attribute: ClauseVariable },
+    Links { relation: ClauseVariable, role: SchemaType, player: ClauseVariable },
+    Isa { instance: ClauseVariable, type_: SchemaType },
+    CompareVariables { lhs: ClauseVariable, comparator: ValueComparator, rhs: ClauseVariable },
+    CompareConstant { lhs: ClauseVariable, comparator: ValueComparator, rhs: typeql::value::ValueLiteral },
 }
 
 impl ClauseLiteral {
@@ -81,13 +67,13 @@ impl ClauseLiteral {
             }
             ClauseLiteral::Isa { instance, type_ } => {
                 format!("{instance} isa {type_}")
-            },
-            ClauseLiteral::CompareVariables { lhs, comparator, rhs,} => {
+            }
+            ClauseLiteral::CompareVariables { lhs, comparator, rhs } => {
                 format!("{lhs} {comparator} {rhs}")
-            },
-            ClauseLiteral::CompareConstant {lhs, comparator, rhs, } => {
+            }
+            ClauseLiteral::CompareConstant { lhs, comparator, rhs } => {
                 format!("{lhs} {comparator} {rhs}")
-            },
+            }
         }
     }
 }
@@ -104,10 +90,7 @@ pub struct Clause {
 // TODO: Unify existing variables rather than always introducing a new one
 impl Clause {
     pub fn new_empty() -> Clause {
-        Self {
-            conjunction: Vec::new(),
-            types_: HashMap::new(),
-        } // value_types: HashMap::new() }
+        Self { conjunction: Vec::new(), types_: HashMap::new() } // value_types: HashMap::new() }
     }
 
     pub fn new_from_isa(type_: SchemaType, schema: &Schema) -> Self {
@@ -162,8 +145,7 @@ impl Clause {
             for j in (i + 1)..existing_vars.len() {
                 let var1 = &existing_vars[i];
                 let var2 = &existing_vars[j];
-                if let (Some(types1), Some(types2)) = (self.types_.get(var1), self.types_.get(var2))
-                {
+                if let (Some(types1), Some(types2)) = (self.types_.get(var1), self.types_.get(var2)) {
                     if types1.intersection(types2).count() > 0 {
                         for comparator in ValueComparator::VALUES {
                             refinements.push(self.extend_with_comparison(var1, comparator, var2, schema));
@@ -179,10 +161,7 @@ impl Clause {
 
     pub(crate) fn extend_with_isa(&self, var: &ClauseVariable, type_: &SchemaType, schema: &Schema) -> Clause {
         let mut new_clause = self.clone();
-        new_clause.conjunction.push(ClauseLiteral::Isa {
-            instance: var.clone(),
-            type_: type_.clone(),
-        });
+        new_clause.conjunction.push(ClauseLiteral::Isa { instance: var.clone(), type_: type_.clone() });
 
         // Narrow the types for this variable
         let mut new_types = BTreeSet::new();
@@ -195,10 +174,7 @@ impl Clause {
     pub(crate) fn extend_with_has(&self, owner: &ClauseVariable, attr_type: &SchemaType, schema: &Schema) -> Clause {
         let mut new_clause = self.clone();
         let attr_var = self.fresh_variable(attr_type, None);
-        new_clause.conjunction.push(ClauseLiteral::Has {
-            owner: owner.clone(),
-            attribute: attr_var.clone(),
-        });
+        new_clause.conjunction.push(ClauseLiteral::Has { owner: owner.clone(), attribute: attr_var.clone() });
 
         // Add the attribute variable to types
 
@@ -250,39 +226,31 @@ impl Clause {
         var2: &ClauseVariable,
     ) -> Clause {
         let mut new_clause = self.clone();
-        new_clause
-            .conjunction
-            .push(ClauseLiteral::CompareVariables {
-                lhs: var1.clone(),
-                comparator,
-                rhs: var2.clone(),
-            });
+        new_clause.conjunction.push(ClauseLiteral::CompareVariables {
+            lhs: var1.clone(),
+            comparator,
+            rhs: var2.clone(),
+        });
         new_clause
     }
 
     fn fresh_variable(&self, type_: &SchemaType, suffix_opt: Option<&str>) -> ClauseVariable {
         let name = if let Some(suffix) = suffix_opt {
-            format!(
-                "{}_{}_{}",
-                type_.label().replace(":", "__"),
-                self.conjunction.len(),
-                suffix
-            )
+            format!("{}_{}_{}", type_.label().replace(":", "__"), self.conjunction.len(), suffix)
         } else {
-            format!(
-                "{}_{}",
-                type_.label().replace(":", "__"),
-                self.conjunction.len()
-            )
+            format!("{}_{}", type_.label().replace(":", "__"), self.conjunction.len())
         };
         ClauseVariable(name)
     }
 
     pub fn to_typeql(&self) -> String {
-        self.conjunction
-            .iter()
-            .map(|literal| literal.to_typeql())
-            .join(";\n\t")
+        self.conjunction.iter().map(|literal| literal.to_typeql()).join(";\n\t")
+    }
+
+    pub fn fmt_with_indent(&self, f: &mut Formatter<'_>, depth: usize) -> std::fmt::Result {
+        let indent = INDENT.repeat(depth);
+        let newline_indent = format!("\n{}", indent);
+        writeln!(f, "{}{}", indent, self.to_typeql().replace("\n", newline_indent.as_str()))
     }
 }
 

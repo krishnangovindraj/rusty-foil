@@ -1,18 +1,20 @@
 use std::collections::{BTreeSet, HashSet};
-use crate::language::{HypothesisLanguage, SchemaType};
-use typedb_driver::{TransactionType, TypeDBDriver, Promise};
-use typedb_driver::concept::Concept;
-use crate::Instance;
-use crate::clause::{Clause, ClauseLiteral, ClauseVariable};
+
+use typedb_driver::{Promise, TransactionType, concept::Concept};
+
+use crate::{
+    Instance, TypeDBHelper,
+    clause::{Clause, ClauseVariable},
+    language::{HypothesisLanguage, SchemaType},
+};
 
 type FoilExample = Instance;
 
 // Ok it's not a foil task, but I have no time.
 pub struct FoilLearningTask {
-    pub driver: TypeDBDriver,
-    pub database_name: String,
+    pub typedb: TypeDBHelper,
 
-    pub target_type: SchemaType, // Label of the type. Used for initial clause.
+    pub target_type: SchemaType,       // Label of the type. Used for initial clause.
     pub class_attribute_label: String, // Label of the class attribute
     pub language: HypothesisLanguage,
     pub positive_examples: HashSet<FoilExample>,
@@ -20,62 +22,64 @@ pub struct FoilLearningTask {
 }
 
 impl FoilLearningTask {
-
-    const INSTANCE_VAR_NAME: &'static str = "instance_0";
     const CLASS_VAR_NAME: &'static str = "class_0";
-    const MAX_THEORY_LENGTH: usize = 20 ;
-    const MAX_CLAUSE_LENGTH: usize = 10 ;
+    const MAX_THEORY_LENGTH: usize = 20;
+    const MAX_CLAUSE_LENGTH: usize = 10;
 
     pub fn discover(
-        driver: TypeDBDriver,
-        database_name: String,
+        typedb: TypeDBHelper,
         language: HypothesisLanguage,
         target_type_label: String,
         class_attribute_label: String,
     ) -> Result<Self, typedb_driver::Error> {
         let query = format!(
             "match ${} isa {}, has {} ${};",
-            Self::INSTANCE_VAR_NAME, target_type_label, class_attribute_label, Self::CLASS_VAR_NAME
+            ClauseVariable::INSTANCE_VAR_NAME,
+            target_type_label,
+            class_attribute_label,
+            Self::CLASS_VAR_NAME
         );
-
-        let tx = driver.transaction(database_name.as_str(), TransactionType::Read)?;
-        let dataset = tx.query(query).resolve()?.into_rows().into_iter().map(|row_result| {
-            let row = row_result?;
-            Ok::<_, typedb_driver::Error>((
-                row.get(Self::INSTANCE_VAR_NAME).unwrap().unwrap().clone(),
-                row.get(Self::CLASS_VAR_NAME).unwrap().unwrap().try_get_boolean().expect("Expected class attribute to be boolean for FOIL tasks"),
-            ))
-        }).collect::<Result<Vec<(Concept, bool)>, _>>()?;
-        let positive_examples = dataset.iter()
-            .filter_map(|(concept, is_positive)| is_positive.then_some(concept.into()))
-            .collect();
-        let negative_examples = dataset.iter()
-            .filter_map(|(concept, is_positive)| (!is_positive).then_some(concept.into()))
-            .collect();
-        let target_type = language.schema.subtypes.keys().find(|t| t.label() == target_type_label)
-            .expect("Expected target_type to be in schema.subtypes").clone();
-        Ok(Self { driver, database_name, class_attribute_label, target_type, language, positive_examples, negative_examples })
+        let tx = typedb.read_tx()?;
+        let dataset = tx
+            .query(query.as_str())
+            .resolve()?
+            .into_rows()
+            .map(|row_result| {
+                let row = row_result?;
+                Ok::<_, typedb_driver::Error>((
+                    row.get(ClauseVariable::INSTANCE_VAR_NAME).unwrap().unwrap().clone(),
+                    row.get(Self::CLASS_VAR_NAME)
+                        .unwrap()
+                        .unwrap()
+                        .try_get_boolean()
+                        .expect("Expected class attribute to be boolean for FOIL tasks"),
+                ))
+            })
+            .collect::<Result<Vec<(Concept, bool)>, _>>()?;
+        let positive_examples =
+            dataset.iter().filter_map(|(concept, is_positive)| is_positive.then_some(concept.into())).collect();
+        let negative_examples =
+            dataset.iter().filter_map(|(concept, is_positive)| (!is_positive).then_some(concept.into())).collect();
+        let target_type = language
+            .schema
+            .subtypes
+            .keys()
+            .find(|t| t.label() == target_type_label)
+            .expect("Expected target_type to be in schema.subtypes")
+            .clone();
+        Ok(Self { typedb, class_attribute_label, target_type, language, positive_examples, negative_examples })
     }
 
-    pub fn deconstruct(self) -> TypeDBDriver {
-        self.driver
+    pub fn deconstruct(self) -> TypeDBHelper {
+        self.typedb
     }
 
     pub(super) fn initial_clause(&self) -> Clause {
         Clause::new_empty().extend_with_isa(
-            &ClauseVariable(Self::INSTANCE_VAR_NAME.to_owned()),
+            &ClauseVariable(ClauseVariable::INSTANCE_VAR_NAME.to_owned()),
             &self.target_type,
-            &self.language.schema
+            &self.language.schema,
         )
-    }
-
-    // Returns example instances which satisfy the clause
-    pub(super) fn test_clause(&self, clause: &Clause) -> Result<HashSet<FoilExample>, typedb_driver::Error> {
-        let query = format!("match {}; select ${};", clause.to_typeql(), Self::INSTANCE_VAR_NAME);
-        let tx = self.driver.transaction(&self.database_name, TransactionType::Read)?;
-        tx.query(query).resolve()?.into_rows().map(|row| {
-            Ok(row?.get(Self::INSTANCE_VAR_NAME).unwrap().unwrap().into())
-        }).collect()
     }
 
     // FOIL search algorithm
@@ -88,13 +92,16 @@ impl FoilLearningTask {
         while !uncovered_positives.is_empty() {
             println!("Learning new clause. Uncovered positives: {}", uncovered_positives.len());
 
-            let Some(clause) = self.learn_clause(&uncovered_positives, &all_negatives)? else { break; };
+            let Some(clause) = self.learn_clause(&uncovered_positives, &all_negatives)? else {
+                break;
+            };
 
             // Find which positives this clause covers
-            let covered_instances = self.test_clause(&clause)?;
+            let covered_instances = self.typedb.test_clause(&clause)?;
             println!(
                 "Learnt clause: {}; Covers pos/neg: {}/{} \n---",
-                clause, uncovered_positives.intersection(&covered_instances).count(),
+                clause,
+                uncovered_positives.intersection(&covered_instances).count(),
                 all_negatives.intersection(&covered_instances).count(),
             );
             uncovered_positives.retain(|ex| !covered_instances.contains(ex));
@@ -116,16 +123,16 @@ impl FoilLearningTask {
     fn learn_clause(
         &self,
         target_positives: &HashSet<FoilExample>,
-        target_negatives: &HashSet<FoilExample>
+        target_negatives: &HashSet<FoilExample>,
     ) -> Result<Option<Clause>, typedb_driver::Error> {
         let mut clause = self.initial_clause();
 
         let mut covered_positives = target_positives.clone();
         let mut covered_negatives = target_negatives.clone();
 
-        while  clause.len() < Self::MAX_CLAUSE_LENGTH && !covered_negatives.is_empty() && !covered_positives.is_empty() {
+        while clause.len() < Self::MAX_CLAUSE_LENGTH && !covered_negatives.is_empty() && !covered_positives.is_empty() {
             // Get instances covered by current clause
-            let covered_instances = self.test_clause(&clause)?;
+            let covered_instances = self.typedb.test_clause(&clause)?;
 
             covered_positives.retain(|x| covered_instances.contains(x));
             covered_negatives.retain(|x| covered_instances.contains(x));
@@ -139,7 +146,7 @@ impl FoilLearningTask {
             let mut best_gain = f64::NEG_INFINITY;
 
             for refinement in refinements {
-                let refined_covered: HashSet<Instance> = self.test_clause(&refinement)?;
+                let refined_covered: HashSet<Instance> = self.typedb.test_clause(&refinement)?;
                 let p_new = refined_covered.intersection(&target_positives).count() as f64;
                 let n_new = refined_covered.intersection(&target_negatives).count() as f64;
 
@@ -149,14 +156,10 @@ impl FoilLearningTask {
                 }
 
                 // FOIL information gain
-                let gain = self.foil_gain(
-                    covered_positives.len() as f64,
-                    covered_negatives.len() as f64,
-                    p_new,
-                    n_new,
-                );
+                let gain = self.foil_gain(covered_positives.len() as f64, covered_negatives.len() as f64, p_new, n_new);
 
-                if gain > best_gain { // TODO: Verify that bigger is better
+                if gain > best_gain {
+                    // TODO: Verify that bigger is better
                     best_gain = gain;
                     best_clause = Some(refinement);
                 }

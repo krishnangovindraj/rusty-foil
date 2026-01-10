@@ -1,8 +1,7 @@
 use std::{io::Read, path::Path};
 
+use rusty_foil::{TypeDBHelper, foil::FoilLearningTask, language::HypothesisLanguage, tilde::tilde::TildeLearningTask};
 use typedb_driver::{Credentials, DriverOptions, Promise, TypeDBDriver};
-use rusty_foil::tasks::foil::FoilLearningTask;
-use rusty_foil::language::HypothesisLanguage;
 
 const TYPEDB_ADDRESS: &str = "localhost:1729";
 
@@ -60,14 +59,46 @@ fn test_bongard_foil() -> Result<(), Box<dyn std::error::Error>> {
         Path::new("examples/bongard/schema.tql"),
         Path::new("examples/bongard/data.tql"),
     )?;
-    let language = HypothesisLanguage::fetch_from_typedb(&driver, db_name)?;
-    let task = FoilLearningTask::discover(driver, db_name.to_owned(), language, target_type_label.to_owned(), class_label.to_owned())?;
+    let typedb = TypeDBHelper::new(driver, db_name.to_owned());
+    let language = HypothesisLanguage::fetch_from_typedb(&typedb)?;
+    let task = FoilLearningTask::discover(typedb, language, target_type_label.to_owned(), class_label.to_owned())?;
 
     let clauses = task.search()?;
     println!("Found {} clauses", clauses.len());
 
     let driver = task.deconstruct();
-    if let Err(_) = cleanup_test_database(&driver, db_name) {
+    if let Err(_) = cleanup_test_database(&driver.driver, db_name) {
+        eprintln!("Cleanup failed");
+    }
+    Ok(())
+}
+
+#[test]
+fn test_bongard_tilde() -> Result<(), Box<dyn std::error::Error>> {
+    let db_name = "bongard_tilde";
+    let target_type_label = "bongard-problem";
+    let class_label = "class";
+    let driver = TypeDBDriver::new(
+        TYPEDB_ADDRESS,
+        Credentials::new("admin", "password"),
+        DriverOptions::new(false, None).unwrap(),
+    )?;
+
+    setup_test_database(
+        &driver,
+        db_name,
+        Path::new("examples/bongard/schema.tql"),
+        Path::new("examples/bongard/data.tql"),
+    )?;
+    let typedb = TypeDBHelper::new(driver, db_name.to_owned());
+    let language = HypothesisLanguage::fetch_from_typedb(&typedb)?;
+    let task = TildeLearningTask::discover(typedb, language, target_type_label, class_label)?;
+
+    let tree = task.search()?;
+    println!("{}", tree);
+
+    let driver = task.deconstruct();
+    if let Err(_) = cleanup_test_database(&driver.driver, db_name) {
         eprintln!("Cleanup failed");
     }
     Ok(())
