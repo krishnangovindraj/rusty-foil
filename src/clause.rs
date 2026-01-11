@@ -8,6 +8,7 @@ use itertools::Itertools;
 use crate::{
     INDENT,
     language::{HypothesisLanguage, Schema, SchemaType},
+    tilde::TildeResult,
 };
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]
@@ -68,10 +69,10 @@ impl ClauseLiteral {
         match self {
             ClauseLiteral::Has { owner, type_, attribute } => {
                 format!("{owner} has {type_} {attribute}")
-            },
+            }
             ClauseLiteral::HasValue { owner, type_, value } => {
                 format!("{owner} has {type_} {value}")
-            },
+            }
             ClauseLiteral::Links { player, role, relation } => {
                 let unscoped_role = role.label().rsplit_once(":").unwrap().1;
                 format!("{relation} links ({unscoped_role}: {player})")
@@ -111,6 +112,24 @@ impl Clause {
 
     pub(crate) fn len(&self) -> usize {
         self.conjunction.len()
+    }
+
+    pub fn refine_to_length(&self, language: &HypothesisLanguage, depth: usize) -> Vec<Clause> {
+        let mut clauses = Vec::new();
+        self._refine_to_length(language, depth, &mut clauses);
+        clauses
+    }
+
+    // Exactly the depth. Not upto.
+    pub fn _refine_to_length(&self, language: &HypothesisLanguage, depth: usize, collect: &mut Vec<Clause>) {
+        let refined = self.refine(language);
+        if depth == 1 {
+            collect.extend(refined)
+        } else {
+            for new_clause in refined {
+                new_clause._refine_to_length(language, depth - 1, collect);
+            }
+        }
     }
 
     pub fn refine(&self, language: &HypothesisLanguage) -> Vec<Clause> {
@@ -172,7 +191,8 @@ impl Clause {
                     let refined = self.extend_with_played_links(&var, role_type, schema);
                     refinements.push(refined.clone());
 
-                    {   // TODO: Decide if we want to keep this.
+                    {
+                        // TODO: Decide if we want to keep this.
                         let last = refined.conjunction.last().unwrap().clone();
                         let ClauseLiteral::Links { relation: rel_var, .. } = last else { unreachable!() };
                         for rel_type_ in refined.types_.get(&rel_var).unwrap() {

@@ -25,6 +25,7 @@ impl FoilLearningTask {
     const CLASS_VAR_NAME: &'static str = "class_0";
     const MAX_THEORY_LENGTH: usize = 20;
     const MAX_CLAUSE_LENGTH: usize = 10;
+    const LOOKAHEAD_ONE: bool = false;
 
     pub fn discover(
         typedb: TypeDBHelper,
@@ -136,10 +137,11 @@ impl FoilLearningTask {
 
             covered_positives.retain(|x| covered_instances.contains(x));
             covered_negatives.retain(|x| covered_instances.contains(x));
-            println!("  Current clause covers: {} pos, {} neg", covered_positives.len(), covered_negatives.len());
-
             // Generate and evaluate refinements
-            let refinements = clause.refine(&self.language);
+            let mut refinements = clause.refine(&self.language);
+            if Self::LOOKAHEAD_ONE {
+                refinements.extend(clause.refine_to_length(&self.language, 2))
+            }
 
             // Find best refinement using FOIL information gain
             let mut best_clause = None;
@@ -167,7 +169,6 @@ impl FoilLearningTask {
 
             match best_clause {
                 Some(new_clause) => {
-                    println!("  Best refinement gain: {:.4}", best_gain);
                     clause = new_clause;
                 }
                 None => {

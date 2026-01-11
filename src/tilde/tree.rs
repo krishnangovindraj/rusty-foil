@@ -17,7 +17,9 @@ use crate::{
 const MIN_SPLIT_EXAMPLES: usize = 4;
 const MIN_SPLIT_ENTROPY: f64 = 1e-6;
 const MIN_SPLIT_GAIN: f64 = 1e-3;
-const MAX_LOOKAHEAD: usize = 3;
+
+const MAX_LOOKAHEAD: usize = 2;
+const ALWAYS_LOOKAHEAD_ONE: bool = false; // TODO: Disable maybe?
 
 pub enum TildeTree {
     Leaf(LeafNode),
@@ -74,7 +76,12 @@ impl LeafNode {
         while best_split_opt.as_ref().map(|bs| bs.0 < MIN_SPLIT_GAIN).unwrap_or(true) && depth < MAX_LOOKAHEAD {
             depth += 1;
             let mut refinements = Vec::new();
-            refine_to_length(&self.test_prefix, &language, depth, &mut refinements);
+            self.test_prefix.refine_to_length(&language, depth);
+            if depth == 1 && ALWAYS_LOOKAHEAD_ONE {
+                depth += 1;
+                self.test_prefix.refine_to_length(&language, depth);
+            }
+
             best_split_opt = refinements
                 .into_iter()
                 .map(|refined| {
@@ -93,13 +100,7 @@ impl LeafNode {
                 let right =
                     Box::new(TildeTree::Leaf(LeafNode { test_prefix: self.test_prefix.clone(), dataset: right_ds }));
                 // tracing::trace!(
-                println!(
-                    "---Splitting with gain {}---\n{}\n -to- \n{}\n -and- \n{}\n---",
-                    _gain,
-                    self,
-                    left,
-                    right
-                );
+                println!("---Splitting with gain {}---\n{}\n -to- \n{}\n -and- \n{}\n---", _gain, self, left, right);
                 Ok(TildeTree::Inner(InnerNode {
                     test_prefix: self.test_prefix.clone(),
                     dataset: self.dataset,
@@ -113,23 +114,6 @@ impl LeafNode {
     fn target(&self) -> Option<super::classification::ExampleClassType> {
         self.dataset.majority_class()
     }
-}
-
-fn refine_to_length(
-    clause: &Clause,
-    language: &HypothesisLanguage,
-    depth: usize,
-    collect: &mut Vec<Clause>,
-) -> TildeResult<()> {
-    let refined = clause.refine(language);
-    if depth == 1 {
-        collect.extend(refined)
-    } else {
-        for new_clause in refined {
-            refine_to_length(&new_clause, language, depth - 1, collect)?;
-        }
-    }
-    Ok(())
 }
 
 impl std::fmt::Display for TildeTree {
