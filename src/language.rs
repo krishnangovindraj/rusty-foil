@@ -12,6 +12,10 @@ use typedb_driver::{
 
 use crate::TypeDBHelper;
 
+pub enum LanguageDiscoveryOption {
+    CategoricalAttributes { type_labels: Vec<String> },
+}
+
 #[derive(Debug, Clone)]
 pub struct HypothesisLanguage {
     pub schema: Schema,
@@ -23,22 +27,34 @@ impl HypothesisLanguage {
     const PLAYS_QUERY: &'static str = "match $left plays $right;";
     const SUB_QUERY: &'static str = "match $left sub $right;";
 
-    pub fn fetch_from_typedb(typedb: &TypeDBHelper) -> Result<Self, typedb_driver::Error> {
-        fn _populate(
-            tx: &Transaction,
-            query: &str,
+    fn _exec(
+        tx: &Transaction,
+        query: &str,
+    ) -> Result<impl Iterator<Item = Result<(Concept, Concept), typedb_driver::Error>>, typedb_driver::Error> {
+        Ok(tx.query(query).resolve()?.into_rows().map(|result| {
+            let concept_map = result?;
+            let left = concept_map.get("left").unwrap().unwrap().clone();
+            let right = concept_map.get("right").unwrap().unwrap().clone();
+            Ok::<_, typedb_driver::Error>((left, right))
+        }))
+    }
+
+    pub fn fetch_from_typedb(
+        typedb: &TypeDBHelper,
+        options: &[LanguageDiscoveryOption],
+    ) -> Result<Self, typedb_driver::Error> {
+        fn _collect_lr(
+            mut iter: impl Iterator<Item = Result<(Concept, Concept), typedb_driver::Error>>,
         ) -> Result<
             (HashMap<SchemaType, BTreeSet<SchemaType>>, HashMap<SchemaType, BTreeSet<SchemaType>>),
             typedb_driver::Error,
         > {
             let mut lr = HashMap::new();
             let mut rl = HashMap::new();
-            tx.query(query).resolve()?.into_rows().try_for_each(|result| {
-                let concept_map = result?;
-                let left: SchemaType = concept_map.get("left").unwrap().unwrap().clone().into();
-                let right: SchemaType = concept_map.get("right").unwrap().unwrap().clone().into();
-                lr.entry(left.clone()).or_insert_with(BTreeSet::new).insert(right.clone());
-                rl.entry(right.clone()).or_insert_with(BTreeSet::new).insert(left.clone());
+            iter.try_for_each(|result| {
+                let (left, right) = result?;
+                lr.entry(left.clone().into()).or_insert_with(BTreeSet::new).insert(right.clone().into());
+                rl.entry(right.clone().into()).or_insert_with(BTreeSet::new).insert(left.clone().into());
                 Ok::<_, typedb_driver::Error>(())
             })?;
             Ok((lr, rl))
@@ -46,11 +62,12 @@ impl HypothesisLanguage {
 
         let schema = {
             let tx = typedb.driver.transaction(&typedb.database, typedb_driver::TransactionType::Read).unwrap();
-            let (owns, owners) = _populate(&tx, Self::OWNS_QUERY)?;
-            let (relates, related_by) = _populate(&tx, Self::RELATES_QUERY)?;
-            let (plays, players) = _populate(&tx, Self::PLAYS_QUERY)?;
-            let (_, subtypes) = _populate(&tx, Self::SUB_QUERY)?;
-            Schema { owns, owners, relates, related_by, plays, players, subtypes }
+            let (owns, owners) = _collect_lr(Self::_exec(&tx, Self::OWNS_QUERY)?)?;
+            let (relates, related_by) = _collect_lr(Self::_exec(&tx, Self::RELATES_QUERY)?)?;
+            let (plays, players) = _collect_lr(Self::_exec(&tx, Self::PLAYS_QUERY)?)?;
+            let (_, subtypes) = _collect_lr(Self::_exec(&tx, Self::SUB_QUERY)?)?;
+            let categorical_attribute_values = Self::read_categorical_attribute_values(&tx, options)?;
+            Schema { owns, owners, relates, related_by, plays, players, subtypes, categorical_attribute_values }
         };
 
         Ok(Self { schema })
@@ -58,6 +75,34 @@ impl HypothesisLanguage {
 
     pub(crate) fn lookup_type(&self, label: &str) -> Option<SchemaType> {
         self.schema.subtypes.keys().find(|t| t.label() == label).cloned()
+    }
+
+    fn read_categorical_attribute_values(
+        tx: &Transaction,
+        options: &[LanguageDiscoveryOption],
+    ) -> Result<HashMap<SchemaType, Vec<typedb_driver::concept::value::Value>>, typedb_driver::Error> {
+        let mut categorical_attribute_values = HashMap::new();
+        options
+            .iter()
+            .filter_map(|option| {
+                match option {
+                    LanguageDiscoveryOption::CategoricalAttributes { type_labels } => Some(type_labels),
+                    // _ => None,
+                }
+            })
+            .flat_map(|labels| labels.iter())
+            .try_for_each(|label| {
+                Self::_exec(&tx, format!("match attribute $left label {};  $right isa $left;", label).as_str())?
+                    .try_for_each(|result| {
+                        let (type_, attr) = result?;
+                        categorical_attribute_values
+                            .entry(type_.clone().into())
+                            .or_insert_with(Vec::new)
+                            .push(attr.try_get_value().unwrap().clone());
+                        Ok::<_, typedb_driver::Error>(())
+                    })
+            })?;
+        Ok(categorical_attribute_values)
     }
 }
 
@@ -76,6 +121,7 @@ pub struct Schema {
     pub players: HashMap<SchemaType, BTreeSet<SchemaType>>,
 
     pub subtypes: HashMap<SchemaType, BTreeSet<SchemaType>>,
+    pub categorical_attribute_values: HashMap<SchemaType, Vec<typedb_driver::concept::value::Value>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
