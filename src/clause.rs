@@ -4,6 +4,7 @@ use std::{
 };
 
 use itertools::Itertools;
+use typedb_driver::concept::AttributeType;
 
 use crate::{
     INDENT,
@@ -33,34 +34,39 @@ enum ValueComparator {
     Lte,
     Gte,
 }
+
 impl ValueComparator {
     const VALUES: [ValueComparator; 4] =
         [ValueComparator::Eq, ValueComparator::Neq, ValueComparator::Lte, ValueComparator::Gte];
+
+    fn to_typeql(&self) -> typeql::token::Comparator {
+        match self {
+            ValueComparator::Eq => typeql::token::Comparator::Eq,
+            ValueComparator::Neq => typeql::token::Comparator::Neq,
+            ValueComparator::Lte => typeql::token::Comparator::Lte,
+            ValueComparator::Gte => typeql::token::Comparator::Gte,
+        }
+    }
 }
 impl std::fmt::Display for ValueComparator {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ValueComparator::Eq => f.write_str("=="),
-            ValueComparator::Neq => f.write_str("!="),
-            ValueComparator::Lte => f.write_str("<="),
-            ValueComparator::Gte => f.write_str(">="),
-        }
+        self.to_typeql().fmt(f)
     }
 }
 
 #[derive(Debug, Clone)]
 pub enum ClauseLiteral {
-    Has { owner: ClauseVariable, attribute: ClauseVariable },
+    Has { owner: ClauseVariable, type_: SchemaType, attribute: ClauseVariable },
     Links { relation: ClauseVariable, role: SchemaType, player: ClauseVariable },
     Isa { instance: ClauseVariable, type_: SchemaType },
     CompareVariables { lhs: ClauseVariable, comparator: ValueComparator, rhs: ClauseVariable },
-    CompareConstant { lhs: ClauseVariable, comparator: ValueComparator, rhs: typeql::value::ValueLiteral },
+    CompareConstant { lhs: ClauseVariable, comparator: ValueComparator, rhs: typedb_driver::concept::value::Value },
 }
 
 impl ClauseLiteral {
     fn to_typeql(&self) -> String {
         match self {
-            ClauseLiteral::Has { owner, attribute } => format!("{owner} has {attribute}"),
+            ClauseLiteral::Has { owner, type_, attribute } => format!("{owner} has {type_} {attribute}"),
             ClauseLiteral::Links { player, role, relation } => {
                 let unscoped_role = role.label().rsplit_once(":").unwrap().1;
                 format!("{relation} links ({unscoped_role}: {player})")
@@ -116,11 +122,22 @@ impl Clause {
             }
 
             // Attribute ownerships
-            #[cfg(FALSE)]
             for type_ in possible_types {
                 for attr_type in schema.owns.get(&type_).unwrap_or(&BTreeSet::new()) {
-                    refinements.push(self.extend_with_has(var, attr_type));
+                    refinements.push(self.extend_with_has(var, attr_type, schema));
                 }
+            }
+            // Attribute ownerships by themselves will not do much unless we refine them a bit
+            // But for now we keep it simple.
+            for (var, var_types) in &self.types_ {
+                // This isn't perfect
+                schema.categorical_attribute_values.iter().filter(|(t, _)| var_types.contains(t)).for_each(
+                    |(t, values)| {
+                        values.iter().for_each(|value| {
+                            refinements.push(self.extend_with_eq(var, value));
+                        });
+                    },
+                );
             }
 
             // Relations we relate
@@ -166,6 +183,7 @@ impl Clause {
         // Narrow the types for this variable
         let mut new_types = BTreeSet::new();
         new_types.insert(type_.clone());
+        // TODO: Do I have to add subtypes?
         new_clause.types_.insert(var.clone(), new_types);
 
         new_clause
@@ -174,14 +192,31 @@ impl Clause {
     pub(crate) fn extend_with_has(&self, owner: &ClauseVariable, attr_type: &SchemaType, schema: &Schema) -> Clause {
         let mut new_clause = self.clone();
         let attr_var = self.fresh_variable(attr_type, None);
-        new_clause.conjunction.push(ClauseLiteral::Has { owner: owner.clone(), attribute: attr_var.clone() });
+        new_clause.conjunction.push(ClauseLiteral::Has {
+            owner: owner.clone(),
+            type_: attr_type.clone(),
+            attribute: attr_var.clone(),
+        });
 
         // Add the attribute variable to types
-
         let mut attr_types = BTreeSet::new();
         attr_types.insert(attr_type.clone());
+        // TODO: Do I have to add subtypes?
         new_clause.types_.insert(attr_var, attr_types);
+        new_clause
+    }
 
+    pub(crate) fn extend_with_eq(
+        &self,
+        attr_var: &ClauseVariable,
+        value: &typedb_driver::concept::value::Value,
+    ) -> Clause {
+        let mut new_clause = self.clone();
+        new_clause.conjunction.push(ClauseLiteral::CompareConstant {
+            lhs: attr_var.clone(),
+            comparator: ValueComparator::Eq,
+            rhs: value.clone(),
+        });
         new_clause
     }
 
@@ -244,7 +279,7 @@ impl Clause {
     }
 
     pub fn to_typeql(&self) -> String {
-        self.conjunction.iter().map(|literal| literal.to_typeql()).join(";\n\t")
+        self.conjunction.iter().map(|literal| literal.to_typeql()).join(";\n")
     }
 
     pub fn fmt_with_indent(&self, f: &mut Formatter<'_>, depth: usize) -> std::fmt::Result {

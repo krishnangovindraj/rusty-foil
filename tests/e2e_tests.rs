@@ -60,7 +60,7 @@ fn test_bongard_foil() -> Result<(), Box<dyn std::error::Error>> {
         Path::new("examples/bongard/data.tql"),
     )?;
     let typedb = TypeDBHelper::new(driver, db_name.to_owned());
-    let language = HypothesisLanguage::fetch_from_typedb(&typedb)?;
+    let language = HypothesisLanguage::fetch_from_typedb(&typedb, &[])?;
     let task = FoilLearningTask::discover(typedb, language, target_type_label.to_owned(), class_label.to_owned())?;
 
     let clauses = task.search()?;
@@ -91,7 +91,7 @@ fn test_bongard_tilde() -> Result<(), Box<dyn std::error::Error>> {
         Path::new("examples/bongard/data.tql"),
     )?;
     let typedb = TypeDBHelper::new(driver, db_name.to_owned());
-    let language = HypothesisLanguage::fetch_from_typedb(&typedb)?;
+    let language = HypothesisLanguage::fetch_from_typedb(&typedb, &[])?;
     let task = TildeLearningTask::discover(typedb, language, target_type_label, class_label)?;
 
     let tree = task.search()?;
