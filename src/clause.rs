@@ -4,7 +4,6 @@ use std::{
 };
 
 use itertools::Itertools;
-use typedb_driver::concept::AttributeType;
 
 use crate::{
     INDENT,
@@ -57,6 +56,7 @@ impl std::fmt::Display for ValueComparator {
 #[derive(Debug, Clone)]
 pub enum ClauseLiteral {
     Has { owner: ClauseVariable, type_: SchemaType, attribute: ClauseVariable },
+    HasValue { owner: ClauseVariable, type_: SchemaType, value: typedb_driver::concept::value::Value },
     Links { relation: ClauseVariable, role: SchemaType, player: ClauseVariable },
     Isa { instance: ClauseVariable, type_: SchemaType },
     CompareVariables { lhs: ClauseVariable, comparator: ValueComparator, rhs: ClauseVariable },
@@ -66,7 +66,12 @@ pub enum ClauseLiteral {
 impl ClauseLiteral {
     fn to_typeql(&self) -> String {
         match self {
-            ClauseLiteral::Has { owner, type_, attribute } => format!("{owner} has {type_} {attribute}"),
+            ClauseLiteral::Has { owner, type_, attribute } => {
+                format!("{owner} has {type_} {attribute}")
+            },
+            ClauseLiteral::HasValue { owner, type_, value } => {
+                format!("{owner} has {type_} {value}")
+            },
             ClauseLiteral::Links { player, role, relation } => {
                 let unscoped_role = role.label().rsplit_once(":").unwrap().1;
                 format!("{relation} links ({unscoped_role}: {player})")
@@ -122,11 +127,13 @@ impl Clause {
             }
 
             // Attribute ownerships
+            #[cfg(FALSE)]
             for type_ in possible_types {
                 for attr_type in schema.owns.get(&type_).unwrap_or(&BTreeSet::new()) {
                     refinements.push(self.extend_with_has(var, attr_type, schema));
                 }
             }
+            #[cfg(FALSE)]
             // Attribute ownerships by themselves will not do much unless we refine them a bit
             // But for now we keep it simple.
             for (var, var_types) in &self.types_ {
@@ -138,6 +145,16 @@ impl Clause {
                         });
                     },
                 );
+            }
+
+            for type_ in possible_types {
+                for attr_type in schema.owns.get(&type_).unwrap_or(&BTreeSet::new()) {
+                    if let Some(values) = schema.categorical_attribute_values.get(attr_type) {
+                        values.iter().for_each(|value| {
+                            refinements.push(self.extend_with_has_value(var, attr_type, value, schema));
+                        })
+                    }
+                }
             }
 
             // Relations we relate
@@ -181,11 +198,9 @@ impl Clause {
         new_clause.conjunction.push(ClauseLiteral::Isa { instance: var.clone(), type_: type_.clone() });
 
         // Narrow the types for this variable
-        let mut new_types = BTreeSet::new();
-        new_types.insert(type_.clone());
+        let new_types = schema.subtypes.get(&type_).unwrap().clone();
         // TODO: Do I have to add subtypes?
-        new_clause.types_.insert(var.clone(), new_types);
-
+        new_clause.update_types(&var, new_types);
         new_clause
     }
 
@@ -199,10 +214,29 @@ impl Clause {
         });
 
         // Add the attribute variable to types
-        let mut attr_types = BTreeSet::new();
-        attr_types.insert(attr_type.clone());
         // TODO: Do I have to add subtypes?
-        new_clause.types_.insert(attr_var, attr_types);
+        let attr_types = BTreeSet::from([attr_type.clone()]);
+        new_clause.update_types(&attr_var, attr_types);
+        let owner_types = schema.owners.get(&attr_type).unwrap().clone();
+        new_clause.update_types(&owner, owner_types);
+        new_clause
+    }
+
+    fn extend_with_has_value(
+        &self,
+        owner: &ClauseVariable,
+        attr_type: &SchemaType,
+        value: &typedb_driver::concept::value::Value,
+        schema: &Schema,
+    ) -> Clause {
+        let mut new_clause = self.clone();
+        new_clause.conjunction.push(ClauseLiteral::HasValue {
+            owner: owner.clone(),
+            type_: attr_type.clone(),
+            value: value.clone(),
+        });
+        let owner_types = schema.owners.get(&attr_type).unwrap().clone();
+        new_clause.update_types(&owner, owner_types);
         new_clause
     }
 
@@ -233,7 +267,8 @@ impl Clause {
             role: role_type.clone(),
             relation: relation.clone(),
         });
-        new_clause.types_.insert(relation, schema.related_by[role_type].clone());
+        new_clause.update_types(&relation, schema.related_by[role_type].clone());
+        // TODO: Do we have to update player types?
         new_clause
     }
 
@@ -250,7 +285,8 @@ impl Clause {
             role: role_type.clone(),
             player: player.clone(),
         });
-        new_clause.types_.insert(player, schema.players[role_type].clone());
+        // TODO: Do we have to update relation types?
+        new_clause.update_types(&player, schema.players[role_type].clone());
         new_clause
     }
 
@@ -286,6 +322,14 @@ impl Clause {
         let indent = INDENT.repeat(depth);
         let newline_indent = format!("\n{}", indent);
         writeln!(f, "{}{}", indent, self.to_typeql().replace("\n", newline_indent.as_str()))
+    }
+
+    fn update_types(&mut self, var: &ClauseVariable, types_: BTreeSet<SchemaType>) {
+        if let Some(existing) = self.types_.get_mut(var) {
+            existing.retain(|t| types_.contains(t));
+        } else {
+            self.types_.insert(var.clone(), types_);
+        }
     }
 }
 

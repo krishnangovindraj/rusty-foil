@@ -1,6 +1,11 @@
 use std::{io::Read, path::Path};
 
-use rusty_foil::{TypeDBHelper, foil::FoilLearningTask, language::HypothesisLanguage, tilde::tilde::TildeLearningTask};
+use rusty_foil::{
+    TypeDBHelper,
+    foil::FoilLearningTask,
+    language::{HypothesisLanguage, LanguageDiscoveryOption},
+    tilde::tilde::TildeLearningTask,
+};
 use typedb_driver::{Credentials, DriverOptions, Promise, TypeDBDriver};
 
 const TYPEDB_ADDRESS: &str = "localhost:1729";
@@ -78,6 +83,7 @@ fn test_bongard_tilde() -> Result<(), Box<dyn std::error::Error>> {
     let db_name = "bongard_tilde";
     let target_type_label = "bongard-problem";
     let class_label = "class";
+    let options = vec![LanguageDiscoveryOption::CategoricalAttributes { type_labels: vec!["config".to_owned()] }];
     let driver = TypeDBDriver::new(
         TYPEDB_ADDRESS,
         Credentials::new("admin", "password"),
@@ -91,7 +97,7 @@ fn test_bongard_tilde() -> Result<(), Box<dyn std::error::Error>> {
         Path::new("examples/bongard/data.tql"),
     )?;
     let typedb = TypeDBHelper::new(driver, db_name.to_owned());
-    let language = HypothesisLanguage::fetch_from_typedb(&typedb, &[])?;
+    let language = HypothesisLanguage::fetch_from_typedb(&typedb, &options)?;
     let task = TildeLearningTask::discover(typedb, language, target_type_label, class_label)?;
 
     let tree = task.search()?;

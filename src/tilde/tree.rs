@@ -92,7 +92,8 @@ impl LeafNode {
                 let left = Box::new(TildeTree::Leaf(LeafNode { test_prefix: clause.clone(), dataset: left_ds }));
                 let right =
                     Box::new(TildeTree::Leaf(LeafNode { test_prefix: self.test_prefix.clone(), dataset: right_ds }));
-                tracing::trace!(
+                // tracing::trace!(
+                println!(
                     "---Splitting with gain {}---\n{}\n -to- \n{}\n -and- \n{}\n---",
                     _gain,
                     self,

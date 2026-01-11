@@ -33,6 +33,7 @@ impl TypeDBHelper {
 
     // Returns example instances which satisfy the clause
     pub fn test_clause(&self, clause: &Clause) -> Result<HashSet<Instance>, typedb_driver::Error> {
+        // println!("TESTING: {clause}");
         let query = format!("match {}; select ${};", clause.to_typeql(), ClauseVariable::INSTANCE_VAR_NAME);
         let tx = self.driver.transaction(self.database.as_str(), TransactionType::Read)?;
         tx.query(query)
