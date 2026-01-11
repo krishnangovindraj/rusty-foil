@@ -117,6 +117,7 @@ impl Clause {
         let mut refinements = Vec::new();
         let schema = &language.schema;
         // For each existing variable, generate refinements
+        // TODO: Unify vars in hypothesis
         let existing_vars: Vec<_> = self.types_.keys().cloned().collect();
         for (var, possible_types) in self.types_.iter() {
             // 1. Add type constraints (Isa literals)
@@ -168,7 +169,18 @@ impl Clause {
             // Relations we play roles in
             for type_ in possible_types {
                 for role_type in schema.plays.get(type_).unwrap_or(&BTreeSet::new()) {
-                    refinements.push(self.extend_with_played_links(&var, role_type, schema));
+                    let refined = self.extend_with_played_links(&var, role_type, schema);
+                    refinements.push(refined.clone());
+
+                    {   // TODO: Decide if we want to keep this.
+                        let last = refined.conjunction.last().unwrap().clone();
+                        let ClauseLiteral::Links { relation: rel_var, .. } = last else { unreachable!() };
+                        for rel_type_ in refined.types_.get(&rel_var).unwrap() {
+                            for other_role in schema.relates.get(rel_type_).unwrap_or(&BTreeSet::new()) {
+                                refinements.push(refined.extend_with_related_links(&rel_var, other_role, schema));
+                            }
+                        }
+                    }
                 }
                 // TODO: Find types playing role, and see if existing vars can be used.
             }
