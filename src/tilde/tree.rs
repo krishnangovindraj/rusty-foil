@@ -18,8 +18,8 @@ const MIN_SPLIT_EXAMPLES: usize = 4;
 const MIN_SPLIT_ENTROPY: f64 = 1e-6;
 const MIN_SPLIT_GAIN: f64 = 1e-3;
 
-const MAX_LOOKAHEAD: usize = 2;
-const ALWAYS_LOOKAHEAD_ONE: bool = false; // TODO: Disable maybe?
+const MAX_LOOKAHEAD: usize = 3;
+const ALWAYS_LOOKAHEAD_ONE: bool = true; // TODO: Disable maybe?
 
 pub enum TildeTree {
     Leaf(LeafNode),
@@ -76,10 +76,10 @@ impl LeafNode {
         while best_split_opt.as_ref().map(|bs| bs.0 < MIN_SPLIT_GAIN).unwrap_or(true) && depth < MAX_LOOKAHEAD {
             depth += 1;
             let mut refinements = Vec::new();
-            self.test_prefix.refine_to_length(&language, depth);
+            refinements.extend(self.test_prefix.refine_to_length(&language, depth));
             if depth == 1 && ALWAYS_LOOKAHEAD_ONE {
                 depth += 1;
-                self.test_prefix.refine_to_length(&language, depth);
+                refinements.extend(self.test_prefix.refine_to_length(&language, depth));
             }
 
             best_split_opt = refinements

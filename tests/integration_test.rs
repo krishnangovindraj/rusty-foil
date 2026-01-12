@@ -1,9 +1,6 @@
 use std::collections::{BTreeSet, HashMap};
 
-use rusty_foil::{
-    clause::{Clause, ClauseVariable},
-    language::SchemaType,
-};
+use rusty_foil::{clause::{Clause, ClauseVariable}, language::SchemaType, TypeDBHelper};
 use typedb_driver::{Credentials, DriverOptions, Promise, TypeDBDriver};
 
 const TEST_DATABASE: &str = "rusty_foil_integration_tests";
@@ -76,7 +73,8 @@ fn test_fetch_schema_from_typedb() -> Result<(), Box<dyn std::error::Error>> {
 
     setup_test_database(&driver)?;
 
-    let language = rusty_foil::language::HypothesisLanguage::fetch_from_typedb(&driver, TEST_DATABASE)?;
+    let typedb = TypeDBHelper::new(driver, TEST_DATABASE.to_owned());
+    let language = rusty_foil::language::HypothesisLanguage::fetch_from_typedb(&typedb, &[])?;
 
     fn _contains(set: &HashMap<SchemaType, BTreeSet<SchemaType>>, key: &str, value: &str) -> bool {
         let key_type = set.keys().find(|k| k.label() == key).unwrap();
@@ -103,8 +101,8 @@ fn test_refinement() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     setup_test_database(&driver)?;
-
-    let language = rusty_foil::language::HypothesisLanguage::fetch_from_typedb(&driver, TEST_DATABASE)?;
+    let typedb = TypeDBHelper::new(driver, TEST_DATABASE.to_owned());
+    let language = rusty_foil::language::HypothesisLanguage::fetch_from_typedb(&typedb, &[])?;
     let person_type = language.schema.owns.keys().find(|x| x.label() == "person").unwrap();
 
     let start = Clause::new_from_isa(person_type.clone(), &language.schema);
